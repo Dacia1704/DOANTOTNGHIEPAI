@@ -1,0 +1,37 @@
+{"q": "phòng dưới 3tr gần Cầu Giấy có điều hòa", "expected": {"price_max": 3000000, "ward_or_area": "Cầu Giấy", "amenities": ["Điều hòa"]}}
+{"q": "tim phong tro 2-3 trieu quan 7", "expected": {"price_min": 2000000, "price_max": 3000000, "area": "Quận 7"}}
+{"q": "còn phòng nào rẻ hơn không", "followup": true, "expected": {"price_max_lower": true}}
+{"q": "phòng trọ 20m2 giá 3 triệu", "expected": {"price_max": 3000000, "area_min": 20, "area_max": 20, "room_type": "Phòng trọ"}}
+{"q": "cho thuê phòng có bếp riêng ở Ba Đình", "expected": {"ward_or_area": "Ba Đình", "amenities": ["Bếp"]}}
+{"q": "tìm phòng dưới 2 triệu", "expected": {"price_max": 2000000}}
+{"q": "từ 4 triệu trở lên", "expected": {"price_min": 4000000}}
+{"q": "phòng 30m2 có wifi ở Hoàn Kiếm", "expected": {"area_min": 30, "area_max": 30, "ward_or_area": "Hoàn Kiếm", "amenities": ["WiFi"]}}
+{"q": "thời tiết hôm nay thế nào", "expected": {"intent": "OUT_OF_SCOPE"}}
+{"q": "tìm phòng giúp mình", "expected": {"intent": "CLARIFY"}}
+{"q": "có phòng nào hợp với mình không", "expected": {"intent": "CLARIFY"}}
+{"q": "phong cho thue gia re o dong da", "expected": {"ward_or_area": "Đống Đa"}}
+{"q": "phòng trọ dưới 3tr ở Thanh Xuân có điều hòa và máy giặt", "expected": {"price_max": 3000000, "ward_or_area": "Thanh Xuân", "amenities": ["Điều hòa", "Máy giặt"]}}
+{"q": "căn phòng 25m2 giá 2.5tr", "expected": {"price_max": 2500000, "area_min": 25, "area_max": 25}}
+{"q": "tìm phòng cho 2 người ở Long Biên", "expected": {"ward_or_area": "Long Biên", "occupants": 2}}
+{"q": "phòng trọ có ban công giá 3,5 triệu", "expected": {"price_max": 3500000, "amenities": ["Ban công"]}}
+{"q": "sinh vien can phong re o cau giay", "expected": {"ward_or_area": "Cầu Giấy", "price_max": 3000000}}
+{"q": "cho thue phong o Nam Tu Liem gia 3tr", "expected": {"ward_or_area": "Nam Từ Liêm", "price_max": 3000000}}
+{"q": "phòng nào có nội thất ở Hà Đông dưới 4 triệu", "expected": {"ward_or_area": "Hà Đông", "price_max": 4000000, "amenities": ["Nội thất"]}}
+{"q": "còn tin nào rẻ hơn 2 triệu không", "followup": true, "expected": {"price_max_lower": true}}
+{"q": "tìm phòng có gác lửng dưới 3 triệu", "expected": {"price_max": 3000000, "amenities": ["Gác lửng"]}}
+{"q": "bóng đá Việt Nam thắng chưa", "expected": {"intent": "OUT_OF_SCOPE"}}
+{"q": "cho tôi hỏi lãi suất ngân hàng", "expected": {"intent": "OUT_OF_SCOPE"}}
+{"q": "phòng 40m2 giá 5tr ở Tây Hồ", "expected": {"area_min": 40, "area_max": 40, "price_max": 5000000, "ward_or_area": "Tây Hồ"}}
+{"q": "tim phong gia 3 den 4 trieu co dieu hoa", "expected": {"price_min": 3000000, "price_max": 4000000, "amenities": ["Điều hòa"]}}
+{"q": "phòng trọ có để xe máy ở Hai Bà Trưng", "expected": {"ward_or_area": "Hai Bà Trưng", "amenities": ["Để xe máy"]}}
+{"q": "giá phòng rẻ nhất ở Hà Nội", "expected": {"province": "Hà Nội"}}
+{"q": "phòng 22m2 ở Cầu Giấy giá 2.8tr có điều hòa", "expected": {"area_min": 22, "area_max": 22, "ward_or_area": "Cầu Giấy", "price_max": 2800000, "amenities": ["Điều hòa"]}}
+{"q": "tìm phòng trọ giá 1.5 triệu", "expected": {"price_max": 1500000}}
+{"q": "cho thue phong 35m2 co noi that o Ba Dinh gia 6tr", "expected": {"area_min": 35, "area_max": 35, "ward_or_area": "Ba Đình", "price_max": 6000000, "amenities": ["Nội thất"]}}
+{"q": "phòng có bếp và tủ lạnh ở Hoàn Kiếm dưới 5 triệu", "expected": {"ward_or_area": "Hoàn Kiếm", "price_max": 5000000, "amenities": ["Bếp", "Tủ lạnh"]}}
+{"q": "căn hộ 45m2 giá 7 triệu", "expected": {"area_min": 45, "area_max": 45, "price_max": 7000000}}
+{"q": "xin chào", "expected": {"intent": "CLARIFY"}}
+{"q": "tìm phòng ở Hà Nội dưới 3 triệu có điều hòa", "expected": {"province": "Hà Nội", "price_max": 3000000, "amenities": ["Điều hòa"]}}
+{"q": "phòng cho 3 người ở Đống Đa dưới 4 triệu", "expected": {"ward_or_area": "Đống Đa", "occupants": 3, "price_max": 4000000}}
+{"q": "cho tôi thuê phòng có nước nóng", "expected": {"amenities": ["Nước nóng"]}}
+{"q": "tìm phòng giá 2 triệu ở Thanh Xuân", "expected": {"price_max": 2000000, "ward_or_area": "Thanh Xuân"}}

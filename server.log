@@ -1,0 +1,17 @@
+{"ts": "2026-10-25T20:35:55+0700", "level": "INFO", "message": "AI Service khởi động", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:35:55+0700", "level": "INFO", "message": "Da nap 200 vector (384 chieu)", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:05+0700", "level": "INFO", "message": "Đang nạp model embedding intfloat/multilingual-e5-small", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:05+0700", "level": "INFO", "message": "HTTP Request: GET https://huggingface.co/api/models/intfloat/multilingual-e5-small \"HTTP/1.1 200 OK\"", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:05+0700", "level": "INFO", "message": "HTTP Request: HEAD https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/config_sentence_transformers.json \"HTTP/1.1 404 Not Found\"", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:05+0700", "level": "WARNING", "message": "Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:05+0700", "level": "INFO", "message": "Loading SentenceTransformer model from intfloat/multilingual-e5-small.", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:06+0700", "level": "INFO", "message": "HTTP Request: HEAD https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/config_sentence_transformers.json \"HTTP/1.1 404 Not Found\"", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:06+0700", "level": "INFO", "message": "HTTP Request: GET https://huggingface.co/api/models/intfloat/multilingual-e5-small/tree/main/additional_chat_templates?recursive=false&expand=false \"HTTP/1.1 404 Not Found\"", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:07+0700", "level": "INFO", "message": "HTTP Request: GET https://huggingface.co/api/models/intfloat/multilingual-e5-small/tree/main?recursive=true&expand=false \"HTTP/1.1 200 OK\"", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:10+0700", "level": "INFO", "message": "HTTP Request: GET https://huggingface.co/api/models/intfloat/multilingual-e5-small \"HTTP/1.1 200 OK\"", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:10+0700", "level": "INFO", "message": "HTTP Request: HEAD https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/2_Normalize/config.json \"HTTP/1.1 404 Not Found\"", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:10+0700", "level": "INFO", "message": "Đã nạp model embedding intfloat/multilingual-e5-small (384 chiều)", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:40+0700", "level": "INFO", "message": "request", "request_id": "", "user_id": "", "route": "/ai/health", "status": 200, "latency_ms": 38}
+{"ts": "2026-10-25T20:36:40+0700", "level": "INFO", "message": "127.0.0.1:62044 - \"GET /ai/health HTTP/1.1\" 200", "request_id": "", "user_id": ""}
+{"ts": "2026-10-25T20:36:57+0700", "level": "INFO", "message": "request", "request_id": "", "user_id": "", "route": "/ai/recommendations", "status": 200, "latency_ms": 77}
+{"ts": "2026-10-25T20:36:57+0700", "level": "INFO", "message": "127.0.0.1:62061 - \"GET /ai/recommendations?limit=3 HTTP/1.1\" 200", "request_id": "", "user_id": ""}

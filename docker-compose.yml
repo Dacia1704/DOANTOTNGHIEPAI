@@ -1,0 +1,51 @@
+services:
+  # ---------- Ollama (LLM local) ----------
+  ollama:
+    image: ollama/ollama
+    container_name: rental-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      # Giữ model trong bộ nhớ để request đầu tiên không bị timeout.
+      - OLLAMA_KEEP_ALIVE=24h
+    # Nếu có GPU NVIDIA, bỏ comment block dưới:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    networks:
+      - rental-network
+
+  # ---------- AI Service (FastAPI) ----------
+  ai-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rental-ai-service
+    restart: unless-stopped
+    env_file:
+      - ${AI_ENV_FILE:-.env}
+    environment:
+      # Tên service nội bộ Docker thay localhost.
+      - LOCAL_LLM_BASE_URL=http://ollama:11434/v1
+    ports:
+      - "8000:8000"
+    depends_on:
+      - ollama
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - rental-network
+
+volumes:
+  ollama_data:
+
+networks:
+  rental-network:
+    driver: bridge

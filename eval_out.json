@@ -1,0 +1,11 @@
+﻿{
+  "provider": "rules",
+  "model": "rules",
+  "total": 37,
+  "correct": 37,
+  "accuracy": 1.0,
+  "latency_median_ms": 0,
+  "latency_max_ms": 0,
+  "failures": []
+}
+Đã lưu kết quả vào ai_eval_runs.
