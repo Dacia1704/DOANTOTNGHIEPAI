@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.chat.normalize import normalize
@@ -132,6 +132,7 @@ def fetch_listing_cards(
     amenity_ids=None,
     price_tolerance_pct=0,
     limit=20,
+    property_distances=None,
 ):
     stmt = build_listing_query(
         filters, price_tolerance_pct=price_tolerance_pct, limit=None
@@ -140,6 +141,10 @@ def fetch_listing_cards(
         stmt = stmt.where(Property.ward_id.in_(ward_ids))
     if province_ids:
         stmt = stmt.where(Property.province_id.in_(province_ids))
+    if property_distances is not None:
+        if not property_distances:
+            return []
+        stmt = stmt.where(Property.id.in_(property_distances))
     stmt = require_amenities(stmt, amenity_ids or ())
     # LIMIT unique listings, not room rows. The window operates after every filter.
     ranked = (
@@ -154,10 +159,14 @@ def fetch_listing_cards(
         )
         .subquery()
     )
+    ordering = (ranked.c.published_at.desc(), ranked.c.listing_id)
+    if property_distances is not None:
+        ordering = (case(property_distances, value=ranked.c.property_id),
+                    ranked.c.price, ranked.c.listing_id)
     rows = session.execute(
         select(ranked)
         .where(ranked.c.room_rank == 1)
-        .order_by(ranked.c.published_at.desc(), ranked.c.listing_id)
+        .order_by(*ordering)
         .limit(limit)
     ).all()
     amenities = amenities_for_rooms(session, rows)

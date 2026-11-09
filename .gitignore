@@ -8,3 +8,5 @@ venv/
 .ruff_cache/
 *.egg-info/
 data/*.sqlite
+*.log
+/eval_out.json

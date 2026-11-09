@@ -14,20 +14,19 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.background import BackgroundTask
+from sqlalchemy import select
 
 from app.api.deps import get_gateway
 from app.chat.llm.gateway import CallContext, Gateway
 from app.chat.llm.rules_provider import RulesProvider, compose_template
+from app.chat.profile import detect_profile_action, profile_reply
 from app.chat.search import (
     FilterResolutionError,
-    fetch_listing_cards,
-    resolve_amenity_ids,
-    resolve_locations,
 )
+from app.chat.suggestions import compose_suggestions, search_with_suggestions
 from app.chat.service import (
     OUT_OF_SCOPE_REPLY,
     apply_profile_defaults_to_filters,
-    cards_to_payloads,
     get_or_create_conversation,
     last_filters_of,
     load_catalogue,
@@ -83,11 +82,16 @@ def _prepare(body, user_id):
     with ai_session_factory() as session:
         cid = get_or_create_conversation(session, user_id, body.conversation_id)
         previous = last_filters_of(session, cid)
+        previous_intent = session.scalar(select(AiMessage.intent).where(
+            AiMessage.conversation_id == cid, AiMessage.role == "ASSISTANT")
+            .order_by(AiMessage.created_at.desc()).limit(1))
     with core_session_factory() as session:
+        catalogue = load_catalogue(session)
+        catalogue["previous_intent"] = previous_intent
         return (
             cid,
             previous,
-            load_catalogue(session),
+            catalogue,
             profile_defaults(session, user_id),
             ward_name_lookup(session),
         )
@@ -95,24 +99,11 @@ def _prepare(body, user_id):
 
 def _search(filters):
     with core_session_factory() as session:
-        wards, provinces = resolve_locations(
-            session, filters.ward_or_area, filters.province
+        settings = get_settings()
+        return search_with_suggestions(
+            session, filters, radius_km=settings.chat_nearby_radius_km,
+            price_tolerance_pct=settings.chat_price_tolerance_pct, limit=8,
         )
-        amenities, unknown = resolve_amenity_ids(session, filters.amenities)
-        if unknown:
-            raise FilterResolutionError(
-                "Bạn vui lòng nói rõ tiện ích cần tìm: " + ", ".join(unknown)
-            )
-        cards = fetch_listing_cards(
-            session,
-            filters,
-            ward_ids=wards,
-            province_ids=provinces,
-            amenity_ids=amenities,
-            price_tolerance_pct=0,
-            limit=8,
-        )
-        return cards_to_payloads(cards, session)
 
 
 def _finish(turn, gateway, day):
@@ -163,6 +154,20 @@ def _finish(turn, gateway, day):
 
 
 async def _turn_events(turn, gateway, previous, catalogue, profile, ward_lookup):
+    action = detect_profile_action(turn.message, catalogue.get("previous_intent"))
+    if action:
+        def read_profile():
+            with core_session_factory() as session:
+                return profile_reply(session, turn.user_id, action, request_id=turn.request_id)
+
+        reply = await asyncio.to_thread(read_profile)
+        turn.intent, turn.status = reply.intent, reply.status
+        turn.filters = reply.filters if reply.filters is not None else (previous or {})
+        turn.listing_ids = [item["id"] for item in reply.items]
+        turn.parts.append(reply.text)
+        yield _sse("listings", {"items": reply.items})
+        yield _sse("token", {"text": reply.text})
+        return
     # The catalogue and provider usage state are owned by this request.
     for provider in gateway.chain:
         if isinstance(provider, RulesProvider):
@@ -194,6 +199,13 @@ async def _turn_events(turn, gateway, previous, catalogue, profile, ward_lookup)
     turn.filters = explicit_filters.model_dump(exclude_none=True)
     turn.listing_ids = [p["id"] for p in payloads]
     yield _sse("listings", {"items": payloads})
+    if not payloads or payloads[0].get("match_type"):
+        reply = compose_suggestions(payloads, filters,
+                                    price_tolerance_pct=get_settings().chat_price_tolerance_pct)
+        turn.parts.append(reply)
+        yield _sse("token", {"text": reply})
+        turn.status = "OK"
+        return
     async with aclosing(
         gateway.compose_stream(
             CallContext(turn.request_id, turn.user_id, "COMPOSE"),

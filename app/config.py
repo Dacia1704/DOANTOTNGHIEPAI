@@ -26,9 +26,11 @@ class Settings(BaseSettings):
 
     # --- LLM local (Ollama) ---
     local_llm_base_url: str = "http://localhost:11434/v1"
-    local_llm_model: str = "qwen3:4b"
+    local_llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
     local_llm_api_key: str = "ollama"
-    local_timeout_seconds: int = 30
+    local_timeout_seconds: int = 90
+    chat_nearby_radius_km: float = Field(default=3, ge=0.5, le=20)
+    chat_price_tolerance_pct: int = Field(default=20, ge=0, le=50)
 
     # --- LLM ngoài (fallback) ---
     allow_external_fallback: bool = True
@@ -46,7 +48,7 @@ class Settings(BaseSettings):
     # --- Giới hạn ---
     chat_daily_limit_per_user: int = 30
     max_concurrent_per_user: int = Field(default=3, ge=1)
-    chat_timeout_seconds: int = Field(default=120, ge=1)
+    chat_timeout_seconds: int = Field(default=240, ge=1)
     quota_timezone: str = "Asia/Ho_Chi_Minh"
 
 
