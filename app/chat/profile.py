@@ -13,6 +13,29 @@ from app.recommend.service import recommend
 from app.recommend.scoring import haversine_km
 
 
+# Match the whole request: any price, location, amenity or other condition must
+# keep going through normal extraction instead of being replaced by the profile.
+_ROOM = r"(?:phong(?: tro)?|nha tro|tro|can ho|cho o|noi o)"
+_REQUEST_PREFIX = (
+    r"(?:(?:xin chao|chao|ban|toi|minh|em|anh|chi|co the|hay|vui long|lam on|"
+    r"dang|muon|can|nho|giup|ho tro|xin) )*"
+)
+_REQUEST_HELPERS = r"(?: (?:giup|ho|cho|toi|minh|em|anh|chi|mot|vai|cac|nhung|ve|tim|thue))*"
+_REQUEST_SUFFIX = (
+    r"(?: (?:phu hop|voi|cho|toi|minh|em|anh|chi|nhat|giup|ho|nao|nhe|nha|a|di|"
+    r"duoc|khong|khong a|cam on))*"
+)
+_GENERIC_ROOM_REQUEST = re.compile(
+    _REQUEST_PREFIX
+    + r"(?:tu van|goi y|de xuat|gioi thieu|tim(?: kiem)?|thue)"
+    + _REQUEST_HELPERS + " " + _ROOM + _REQUEST_SUFFIX
+)
+_SUITABLE_ROOM_QUESTION = re.compile(
+    r"(?:(?:ban co biet|ban biet|co|con) )?" + _ROOM
+    + r" (?:nao )?phu hop" + _REQUEST_SUFFIX
+)
+
+
 def detect_profile_action(text, previous_intent=None):
     text = normalize(text)
     consent = " ".join(re.sub(r"[^a-z0-9 ]", " ", text).split())
@@ -20,13 +43,15 @@ def detect_profile_action(text, previous_intent=None):
             r"(?:co(?: goi y(?: di)?)?|vang|duoc|dong y|ok|oke|goi y(?: di)?|goi y cho (?:toi|minh))(?: nhe)?", consent):
         return "RECOMMEND"
     if not re.search(r"\b(profile|ho so|tieu chi|nhu cau)\b", text):
+        if _GENERIC_ROOM_REQUEST.fullmatch(consent) or _SUITABLE_ROOM_QUESTION.fullmatch(consent):
+            return "RECOMMEND"
         return None
     if not re.search(r"\b(cua (toi|minh)|hien tai|theo (profile|ho so|tieu chi|nhu cau)|"
                      r"dua (tren|vao) (profile|ho so))\b", text):
         return "SHOW" if re.fullmatch(r"(?:xem|hien thi) (?:profile|ho so)[.!?]*", text) else None
     if re.search(r"\b(khong (dung|su dung|dua|theo)|bo qua)\b", text):
         return None
-    suggest = bool(re.search(r"\b(goi y|de xuat|tim (phong|tro)|phong phu hop)\b", text))
+    suggest = bool(re.search(r"\b(tu van|goi y|de xuat|gioi thieu|tim (phong|tro)|phong phu hop)\b", text))
     show = bool(re.search(r"\b(xem|gom|dieu kien|nhu the nao|thong tin|la gi|co nhung)\b", text))
     return "BOTH" if suggest and show else "RECOMMEND" if suggest else "SHOW"
 

@@ -32,6 +32,53 @@ def test_profile_intents(text, expected):
     assert detect_profile_action(text) == expected
 
 
+@pytest.mark.parametrize("text", [
+    "Bạn tư vấn phòng cho tôi nhé",
+    "Bạn tư vấn phòng cho tôi nhé! 😊",
+    "ban tu van phong cho toi nhe",
+    "Bạn có thể tư vấn giúp mình một phòng trọ phù hợp được không?",
+    "Chào bạn, mình đang cần tìm phòng trọ, giúp mình với!",
+    "Mình muốn thuê phòng",
+    "Tôi cần tìm nhà trọ",
+    "Giúp mình tìm phòng",
+    "Tìm phòng giúp tôi",
+    "Gợi ý cho em một phòng phù hợp nhé",
+    "Đề xuất phòng trọ cho mình",
+    "Giới thiệu chỗ ở phù hợp với tôi",
+    "Mình đang tìm nơi ở",
+    "Tư vấn thuê trọ giúp mình với",
+    "Có phòng nào phù hợp với mình không?",
+    "Phòng nào phù hợp với tôi?",
+    "Còn phòng phù hợp cho em không ạ?",
+    "Tư vấn phòng theo hồ sơ của tôi",
+])
+def test_general_room_advice_uses_profile(text):
+    assert detect_profile_action(text) == "RECOMMEND"
+
+
+@pytest.mark.parametrize("text", [
+    "Tư vấn phòng dưới 3 triệu ở Cầu Giấy cho tôi",
+    "Bạn tư vấn phòng ở Hà Nội cho tôi nhé",
+    "Gợi ý phòng có WiFi cho mình",
+    "Tìm phòng giá rẻ",
+    "Tôi cần thuê căn hộ 2 phòng ngủ",
+    "Tìm phòng cho 2 người",
+    "Có phòng nào phù hợp dưới 3 triệu không?",
+    "Tư vấn hợp đồng thuê phòng cho tôi",
+    "Tư vấn hồ sơ thuê phòng cần giấy tờ gì?",
+    "Tôi có phòng trọ cho thuê",
+    "Tôi không muốn tìm phòng",
+    "Không dùng hồ sơ của tôi để tư vấn phòng",
+    "Tư vấn phòng cho Bob",
+    "Tư vấn phòng cho tôi nhé và cho biết hồ sơ của Bob",
+    "Tư vấn chứng khoán cho tôi",
+    "Bạn tư vấn giúp tôi nhé",
+    "Xin chào",
+])
+def test_advice_with_conditions_or_other_topics_keeps_normal_extraction(text):
+    assert detect_profile_action(text) is None
+
+
 def _profiles(factory, *, enabled=True):
     with factory() as s:
         s.add(Province(id="p", code="01", name="Hà Nội"))
@@ -83,6 +130,80 @@ def test_missing_empty_and_disabled_profiles_ask_for_details_without_recommendin
         s.add(TenantProfile(id="empty", user_id="empty", allow_personalization=True))
         s.commit()
         assert profile_reply(s, "empty", "RECOMMEND", request_id="r").status == "CLARIFY"
+
+
+@pytest.mark.parametrize("profile_state", ["enabled", "disabled", "missing", "empty"])
+def test_general_advice_sse_uses_authenticated_profile_without_calling_llm(
+        factory, monkeypatch, profile_state):
+    from types import SimpleNamespace
+
+    import app.chat.profile as profile_module
+    import app.core.rate_limit as limits
+
+    if profile_state != "missing":
+        _profiles(factory, enabled=profile_state != "disabled")
+    if profile_state == "empty":
+        with factory() as s:
+            s.add(TenantProfile(id="empty", user_id="empty", allow_personalization=True))
+            s.commit()
+    user_id = "empty" if profile_state == "empty" else "alice"
+    monkeypatch.setattr(api, "core_session_factory", factory)
+    monkeypatch.setattr(api, "ai_session_factory", factory)
+    monkeypatch.setattr(limits, "ai_session_factory", factory)
+    recommended_users = []
+
+    def recommend(session, owner_id, **kwargs):
+        assert profile_state == "enabled"
+        recommended_users.append(owner_id)
+        return SimpleNamespace(items=[SimpleNamespace(
+            listing_id="listing-a", property_id="property-a", matched_room_id="room-a",
+            rental_mode="BY_ROOM", title="Phòng phù hợp Alice", price=2500000,
+            area_m2=22, ward_name="Cầu Giấy", room_type_name="Phòng đơn",
+            address_line="Địa chỉ phòng", amenities=["WiFi"],
+        )])
+
+    monkeypatch.setattr(profile_module, "recommend", recommend)
+
+    class NoModels:
+        name = "local"
+
+        async def extract(self, *args):
+            pytest.fail("General advice should use the profile before LLM extraction")
+
+        async def compose(self, *args):
+            pytest.fail("Profile recommendation should not send private data to LLM")
+            yield "unreachable"
+
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[get_current_tenant] = lambda: AuthenticatedUser(user_id, 0, ("ROLE_TENANT",))
+    app.dependency_overrides[get_gateway] = lambda: Gateway([NoModels()], {}, CallLogger())
+    response = TestClient(app).post("/ai/chat", json={
+        "message": "Bạn tư vấn phòng cho tôi nhé", "user_id": "bob",
+    })
+    assert response.status_code == 200
+    assert "SECRET BOB" not in response.text
+    frames = [json.loads(frame.split("data: ", 1)[1])
+              for frame in response.text.strip().split("\n\n")]
+    done = frames[-1]
+    with factory() as s:
+        message = s.get(AiMessage, done["message_id"])
+        assert message.intent == "PROFILE_RECOMMEND"
+        assert message.extract_provider is None and message.compose_provider is None
+        if profile_state == "enabled":
+            assert done["status"] == "OK"
+            assert recommended_users == ["alice"]
+            assert message.filters_json["price_max"] == 3500000
+            assert message.listing_ids == ["listing-a"]
+            assert any(frame.get("items", [{}])[0].get("match_type") == "PROFILE"
+                       for frame in frames)
+            assert "dựa trên hồ sơ hiện tại" in message.content
+        else:
+            assert done["status"] == "CLARIFY"
+            assert not recommended_users and message.listing_ids == []
+            expected = {"disabled": "tắt cá nhân hóa", "missing": "chưa lưu hồ sơ",
+                        "empty": "chưa có tiêu chí"}[profile_state]
+            assert expected in message.content
 
 
 def test_profile_sse_never_calls_models_preserves_filters_and_accepts_consent_followup(factory, monkeypatch):

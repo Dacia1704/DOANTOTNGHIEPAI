@@ -61,6 +61,7 @@ Frontend :4200
 
 - Chatbot: trích giá, khu vực, diện tích, tiện ích, số người → tìm phòng bằng SQL → trả card và nội dung qua SSE → lưu hội thoại/log.
 - Hỗ trợ hỏi “Profile của tôi hiện tại gồm những điều kiện gì?” để xem các điều kiện đang lưu, hoặc “Gợi ý phòng dựa trên profile của tôi” để dùng bộ gợi ý theo hồ sơ. Đọc theo user ID trong JWT; không lấy ID/email trong câu chat và không gửi hồ sơ cho LLM. Sau khi xem hồ sơ có thể trả lời “Có, gợi ý đi nhé”. Nếu thiếu hồ sơ hoặc đang tắt cá nhân hóa, chatbot hướng dẫn bổ sung/bật lại, không tự đổi thiết lập. Xem hồ sơ vẫn hoạt động khi cá nhân hóa tắt.
+- Các câu tư vấn chung như “Bạn tư vấn phòng cho tôi nhé”, “Giúp mình tìm phòng”, “Mình muốn thuê phòng”, “Có phòng nào phù hợp với mình không?” tự dùng hồ sơ của tenant đăng nhập, không cần nhắc từ “profile”. Nhận diện có dấu/không dấu và các cách nói lịch sự trước khi gọi LLM. Câu có điều kiện cụ thể (giá, địa điểm, diện tích, tiện ích...) tiếp tục qua luồng trích bộ lọc, giá trị trong câu hỏi được ưu tiên. Hồ sơ thiếu/rỗng hoặc tắt cá nhân hóa sẽ nhận hướng dẫn bổ sung/bật lại. Đây là logic định tuyến ý định trong `app/chat/profile.py`; không thay trọng số model Ollama.
 - Gợi ý theo hồ sơ dùng khu vực, giá, diện tích, loại phòng, số người, tiện ích bắt buộc/ưu tiên, điểm mốc và mức dung sai theo bộ recommendation hiện có. Các tiêu chí được chấm điểm có thể chưa khớp hoàn toàn; câu trả lời ghi rõ chênh lệch giá, diện tích, loại phòng, sức chứa hoặc khoảng cách. Ngày dọn vào, nhóm người thuê và ghi chú được hiển thị như thông tin đã lưu, chưa phải điều kiện lọc được bảo đảm bởi recommendation.
 - Chỉ dùng tin PUBLISHED còn hạn, phòng AVAILABLE, tin công khai mới nhất của cơ sở. Bộ lọc phải khớp cùng một phòng.
 - Khi không có kết quả: ưu tiên phòng ngoài phường nhưng trong 3 km từ centroid phường, cùng tỉnh và đúng giá; tiếp đến nới giá trong khu vực yêu cầu tối đa 20%, cuối cùng kết hợp lân cận và nới giá. Giữ tiện ích, diện tích, loại phòng và số người. Ghi rõ phần chưa khớp và hỏi thêm; không ghi điều kiện nới vào bộ lọc gốc.
@@ -152,6 +153,8 @@ Set-Location E:\SpringBoot\DoAn\RentalManagement
 ```
 
 Script tự bật Docker hạ tầng → Maven clean → Flyway tới V1 tạo 49 bảng → đồng bộ 34 tỉnh và 3.321 phường từ API → xuất snapshot → sinh V2 dựa trên địa chỉ vừa đồng bộ → áp dụng các migration còn lại → thoát. Sau khi merge main, migration V6 bổ sung `notification_outbox` và index thông báo; tổng cộng 50 bảng nghiệp vụ. Giữ V6 riêng để database đã có V1/V2 có thể nâng cấp; không gộp thay đổi mới vào V1 đã áp dụng. Không tạo quận/huyện riêng vì nguồn và schema dùng tỉnh → phường/xã.
+
+Trong hai tiến trình setup, script tắt job PDF, relay thông báo và RabbitMQ listener vì bước V1 chưa có `notification_outbox`; các chức năng này dùng cấu hình bình thường khi chạy backend sau setup. DevTools restart cũng được tắt bằng JVM property để lỗi khởi động trả đúng exit code cho script.
 
 Mặc định có 1.071 tài khoản (3 admin, 68 landlord, 1.000 tenant), 1.088 cơ sở/tin đăng, 7.752 phòng, hơn 26.000 ảnh, 6.000 review, 1.000 report và dữ liệu cho mọi bảng nghiệp vụ. Số lượng chi tiết ở `RentalManagement/scripts/data/demo-counts.json`. Ảnh giữ từ seed cũ.
 
