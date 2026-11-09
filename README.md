@@ -34,7 +34,7 @@ DoAn/
 │   ├── src/main/java/com/tamdaptit/rentalmanagement/
 │   │                       # auth, identity, property, room, listing,
 │   │                       # rental, chat, review, report, payment...
-│   ├── src/main/resources/db/migration/  # Flyway V1/V2
+│   ├── src/main/resources/db/migration/  # Flyway V1/V2 và V6 thông báo
 │   ├── src/main/resources/reports/       # mẫu hợp đồng PDF
 │   └── scripts/            # setup DB, sinh seed, proxy IPN
 └── AIService/
@@ -51,7 +51,7 @@ Giữ file lock, migration, font/license, test và script vận hành đang dùn
 
 ```text
 Frontend :4200
-  ├── /api, /ws → Spring Boot :8080 → rental_db (Flyway V1 + V2)
+  ├── /api, /ws → Spring Boot :8080 → rental_db (Flyway V1 + V2 + V6)
   └── /ai       → FastAPI :8000
                     ├── chỉ đọc dữ liệu nghiệp vụ rental_db
                     ├── đọc/ghi rental_ai (Alembic)
@@ -151,7 +151,7 @@ Set-Location E:\SpringBoot\DoAn\RentalManagement
 .\scripts\setup-demo.ps1
 ```
 
-Script tự bật Docker hạ tầng → Maven clean → Flyway tới V1 tạo 49 bảng → đồng bộ 34 tỉnh và 3.321 phường từ API → xuất snapshot → sinh V2 dựa trên địa chỉ vừa đồng bộ → áp dụng V2 → thoát. Không tạo quận/huyện riêng vì nguồn và schema dùng tỉnh → phường/xã.
+Script tự bật Docker hạ tầng → Maven clean → Flyway tới V1 tạo 49 bảng → đồng bộ 34 tỉnh và 3.321 phường từ API → xuất snapshot → sinh V2 dựa trên địa chỉ vừa đồng bộ → áp dụng các migration còn lại → thoát. Sau khi merge main, migration V6 bổ sung `notification_outbox` và index thông báo; tổng cộng 50 bảng nghiệp vụ. Giữ V6 riêng để database đã có V1/V2 có thể nâng cấp; không gộp thay đổi mới vào V1 đã áp dụng. Không tạo quận/huyện riêng vì nguồn và schema dùng tỉnh → phường/xã.
 
 Mặc định có 1.071 tài khoản (3 admin, 68 landlord, 1.000 tenant), 1.088 cơ sở/tin đăng, 7.752 phòng, hơn 26.000 ảnh, 6.000 review, 1.000 report và dữ liệu cho mọi bảng nghiệp vụ. Số lượng chi tiết ở `RentalManagement/scripts/data/demo-counts.json`. Ảnh giữ từ seed cũ.
 
@@ -334,6 +334,10 @@ Tọa độ cơ sở/ảnh/giao dịch seed là mô phỏng để kiểm tra ch�
 
 ## 5. Cấu hình FE, dịch vụ ngoài và Docker frontend
 
+### Thông báo và cache sau khi cập nhật main
+
+FE có chuông thông báo realtime; BE dùng Redis cache, RabbitMQ và `notification_outbox` (Flyway V6). Backend tự áp dụng V6 khi khởi động; không seed lại database đã có V2. Có thể cấu hình `CACHE_TTL=30m`, `NOTIFICATIONS_RELAY_ENABLED=true`, `NOTIFICATIONS_RELAY_DELAY_MS=2000` trong `.env` BE. Phần đồng bộ địa chỉ vẫn giữ `ADDRESS_SYNC_ENABLED=false` khi chạy bình thường. Chi tiết: [thông báo Redis/RabbitMQ](../RentalManagement/docs/REDIS_RABBITMQ_NOTIFICATIONS.md), [kiến trúc backend](../RentalManagement/docs/BE_ARCHITECTURE_AND_DATABASE.md).
+
 ### 5.1. Frontend Angular
 
 `npm ci` cài đúng `package-lock.json`; chỉ cần cài lại khi dependency thay đổi. `npm start` dùng cấu hình development. API trong trình duyệt là đường dẫn tương đối:
@@ -467,3 +471,5 @@ Tài liệu còn dùng:
 | Tham chiếu TypeScript và link Markdown nội bộ | Không còn file TS mồ côi ngoài entry point/environment build; không có link nội bộ bị hỏng |
 
 Đợt kiểm tra này không dựng lại DB/seed, không chạy giao dịch VNPay, upload Cloudinary hoặc toàn bộ luồng tích hợp với model thật. Không thay dữ liệu ứng dụng đang có.
+
+Sau khi cập nhật `origin/main` vào `refactor` ngày 09/11/2026: FE build thành công, 42 file/229 test FE đạt; BE compile source/test và chạy 34 test kiến trúc, cache, WebSocket, liên hệ tin, review, validation thuê và PDF đều đạt. Hai conflict BE (README và application.yaml) đã được giải quyết bằng cách giữ tài liệu chung ở AIService, đồng thời giữ cả cấu hình đồng bộ địa chỉ và cache/thông báo mới. Chưa chạy nhóm test hạ tầng thông báo cần MySQL/Redis/RabbitMQ thật.
