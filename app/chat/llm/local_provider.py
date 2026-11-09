@@ -9,7 +9,6 @@ import httpx
 
 from app.chat.llm.base import InvalidJsonError, ProviderError, ProviderUsage
 from app.chat.prompts import (
-    COMPOSE_FEWSHOT,
     COMPOSE_SYSTEM_PROMPT,
     EXTRACT_FEWSHOT,
     EXTRACT_SYSTEM_PROMPT,
@@ -62,8 +61,28 @@ class LocalProvider:
     # --- Bước trích bộ lọc ---
 
     async def extract(self, text: str, last_filters: dict | None) -> ExtractResult:
-        messages = [{"role": "system", "content": EXTRACT_SYSTEM_PROMPT}]
-        messages.extend(EXTRACT_FEWSHOT)
+        messages = [{
+            "role": "system",
+            "content": EXTRACT_SYSTEM_PROMPT + (
+                "\nTrả JSON gọn, bỏ các trường null và mảng rỗng trong filters. "
+                "Phải giữ đủ mọi điều kiện được nhắc, nhất là giá và số người."
+            ),
+        }]
+        # Short examples keep CPU prompt evaluation small; the full schema stays above.
+        for example in EXTRACT_FEWSHOT:
+            if example["role"] == "assistant":
+                data = json.loads(example["content"])
+                data["filters"] = {
+                    key: value for key, value in data["filters"].items()
+                    if value is not None and value != []
+                }
+                if data.get("clarification_question") is None:
+                    data.pop("clarification_question", None)
+                messages.append({"role": "assistant", "content": json.dumps(
+                    data, ensure_ascii=False, separators=(",", ":")
+                )})
+            else:
+                messages.append(example)
         messages.append(
             {"role": "user", "content": self._user_content(text, last_filters)}
         )
@@ -74,8 +93,9 @@ class LocalProvider:
                 "/chat/completions",
                 {
                     "model": self.model,
-                    "messages": messages,
+                    "messages": self._without_thinking(messages),
                     "temperature": 0,
+                    **self._generation_options(max_tokens=512),
                     "response_format": {"type": "json_object"},
                     "stream": False,
                 },
@@ -83,7 +103,13 @@ class LocalProvider:
             self._record_usage(data)
             content = self._content_of(data)
             try:
-                return ExtractResult.model_validate_json(content)
+                result = ExtractResult.model_validate_json(content)
+                if result.intent == "SEARCH" and result.filters.is_empty() and not last_filters:
+                    result.intent = "CLARIFY"
+                    result.clarification_question = (
+                        "Bạn muốn tìm phòng ở khu vực nào và khoảng giá bao nhiêu?"
+                    )
+                return result
             except Exception as exc:
                 last_error = exc
                 if attempt == 1:
@@ -105,12 +131,17 @@ class LocalProvider:
     async def compose(self, text: str, listings: list[dict]) -> AsyncIterator[str]:
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": COMPOSE_SYSTEM_PROMPT},
-                *COMPOSE_FEWSHOT,
+            "messages": self._without_thinking([
+                {"role": "system", "content": COMPOSE_SYSTEM_PROMPT + (
+                    "\nDanh sách đã được SQL lọc theo yêu cầu, không tự lọc lại. "
+                    "Nếu có kết quả, xác nhận tìm thấy phòng phù hợp; "
+                    "chỉ nói không tìm thấy khi số kết quả bằng 0. "
+                    "Số kết quả là số phòng, không phải số người ở."
+                )},
                 {"role": "user", "content": self._compose_content(text, listings)},
-            ],
+            ]),
             "temperature": 0.3,
+            **self._generation_options(max_tokens=384),
             "stream": True,
             "stream_options": {"include_usage": True},
         }
@@ -154,6 +185,28 @@ class LocalProvider:
 
     # --- helpers ---
 
+    def _supports_thinking_switch(self) -> bool:
+        name = self.model.lower()
+        return name.split(":", 1)[0] == "qwen3" and "instruct" not in name
+
+    def _without_thinking(self, messages: list[dict]) -> list[dict]:
+        if not self._supports_thinking_switch():
+            return messages
+        # Qwen3's prompt switch also covers templates that ignore reasoning_effort.
+        return [
+            {**message, "content": message["content"] + "\n/no_think"}
+            if message["role"] in ("system", "user") else message
+            for message in messages
+        ]
+
+    def _generation_options(self, *, max_tokens: int) -> dict:
+        options = {"max_tokens": max_tokens}
+        # Ollama's OpenAI endpoint maps "none" to thinking=false for Qwen3.
+        # Other OpenAI-compatible providers retain their existing reasoning mode.
+        if self._supports_thinking_switch():
+            options["reasoning_effort"] = "none"
+        return options
+
     @staticmethod
     def _content_of(data: dict) -> str:
         choices = data.get("choices") or []
@@ -174,11 +227,16 @@ class LocalProvider:
     @staticmethod
     def _compose_content(text: str, listings: list[dict]) -> str:
         lines = []
-        for index, item in enumerate(listings, start=1):
+        # All cards still go to the frontend; the short reply only needs a sample.
+        for index, item in enumerate(listings[:5], start=1):
             amenities = ", ".join(item.get("amenities") or [])
             lines.append(
                 f"{index}. {item.get('title')} - {item.get('price_text')} - "
                 f"{item.get('area_text')} - {item.get('ward_text')} - {amenities}"
             )
         block = "\n".join(lines) if lines else "(không có phòng nào)"
-        return f"Câu hỏi: {text}\n<listing_data>\n{block}\n</listing_data>"
+        return (
+            f"Câu hỏi: {text}\n<listing_data>\n"
+            f"Tổng số kết quả: {len(listings)}. Chi tiết tối đa 5 kết quả:\n"
+            f"{block}\n</listing_data>"
+        )

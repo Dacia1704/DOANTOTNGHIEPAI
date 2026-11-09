@@ -200,3 +200,166 @@ def test_search_chat_persists_results_usage_and_room_identity(inventory, monkeyp
             ).local_count
             == 2
         )
+
+
+def _add_neighbor(session, key, *, lat=21.005, price=2800000, wifi=True):
+    session.add(Ward(id=key, code=key, name=key, province_id="p"))
+    session.flush()
+    session.add(Property(id=key, landlord_id="owner", property_type_id="pt", name=key,
+                         rental_mode="BY_ROOM", province_id="p", ward_id=key,
+                         address_line=key, latitude=lat, longitude=105))
+    session.flush()
+    session.add(Room(id=key, property_id=key, room_number="1", room_type_id="t",
+                     price=price, area_m2=30, max_occupants=2, rental_status="AVAILABLE"))
+    session.add(Listing(id=key, property_id=key, title=key, status="PUBLISHED",
+                        published_at=datetime.now(), created_at=datetime.now(),
+                        expires_at=datetime.now() + timedelta(days=10)))
+    if wifi:
+        session.add(PropertyAmenity(id=key, property_id=key, amenity_id="wifi"))
+    session.flush()
+
+
+def _prepare_nearby(session):
+    from sqlalchemy import update
+    session.execute(update(Room).values(rental_status="RENTED"))
+    ward = session.get(Ward, "w")
+    ward.centroid_lat, ward.centroid_lng = 21, 105
+    session.flush()
+
+
+def test_exact_match_wins_over_cheaper_nearby(inventory):
+    from app.chat.suggestions import search_with_suggestions
+    with inventory() as s:
+        s.get(Ward, "w").centroid_lat = 21
+        s.get(Ward, "w").centroid_lng = 105
+        _add_neighbor(s, "near", price=1500000)
+        result = search_with_suggestions(s, SearchFilters(
+            ward_or_area="Cau Giay", price_max=3000000, area_min=25, amenities=["Wifi"]))
+        assert [item["id"] for item in result] == ["current"]
+        assert "match_type" not in result[0]
+
+
+def test_nearby_uses_centroid_actual_distance_amenities_and_orders_before_limit(inventory):
+    from app.chat.suggestions import search_with_suggestions
+    with inventory() as s:
+        _prepare_nearby(s)
+        _add_neighbor(s, "near", lat=21.005)
+        _add_neighbor(s, "farther", lat=21.02)
+        _add_neighbor(s, "too_far", lat=21.1)
+        _add_neighbor(s, "no_wifi", lat=21.001, wifi=False)
+        filters = SearchFilters(ward_or_area="Cau Giay", price_max=3000000, amenities=["Wifi"])
+        result = search_with_suggestions(s, filters, limit=1)
+        assert [item["id"] for item in result] == ["near"]
+        assert result[0]["match_type"] == "NEARBY"
+        assert 0.5 < result[0]["distance_km"] < 0.6
+        assert filters.price_max == 3000000 and filters.ward_or_area == "Cau Giay"
+
+
+def test_missing_centroid_does_not_invent_nearby_matches(inventory):
+    from app.chat.suggestions import search_with_suggestions
+    with inventory() as s:
+        _prepare_nearby(s)
+        s.get(Ward, "w").centroid_lat = None
+        s.get(Ward, "w").centroid_lng = None
+        _add_neighbor(s, "near")
+        result = search_with_suggestions(s, SearchFilters(
+            ward_or_area="Cau Giay", price_max=3000000, amenities=["Wifi"]))
+        assert result == []
+
+
+def test_nearby_price_alternative_is_labelled_and_preserves_requirements(inventory):
+    from app.chat.suggestions import compose_suggestions, search_with_suggestions
+    with inventory() as s:
+        _prepare_nearby(s)
+        _add_neighbor(s, "over", price=3300000)
+        _add_neighbor(s, "over_cap", price=3700000)
+        _add_neighbor(s, "no_wifi", price=3100000, wifi=False)
+        filters = SearchFilters(ward_or_area="Cau Giay", price_max=3000000, amenities=["Wifi"])
+        result = search_with_suggestions(s, filters)
+        assert [item["id"] for item in result] == ["over"]
+        assert result[0]["match_type"] == "NEARBY_PRICE"
+        assert len(result[0]["differences"]) == 2
+        reply = compose_suggestions(result, filters)
+        assert "300,000" in reply and "Wifi" in reply
+        assert filters.price_max == 3000000
+
+
+def test_same_ward_price_alternative_and_no_result_question(inventory):
+    from app.chat.suggestions import compose_suggestions, search_with_suggestions
+    with inventory() as s:
+        s.get(Room, "large").price = 3300000
+        s.flush()
+        filters = SearchFilters(ward_or_area="Cau Giay", price_max=3000000,
+                                area_min=29, amenities=["Wifi"])
+        result = search_with_suggestions(s, filters)
+        assert result[0]["match_type"] == "PRICE"
+        assert result[0]["matched_room_id"] == "large"
+        assert "distance_km" not in result[0]
+        assert "3.6" in compose_suggestions([], filters)
+
+
+@pytest.mark.asyncio
+async def test_sse_nearby_keeps_original_filters_and_skips_llm_rewording(inventory, monkeypatch):
+    import json
+    from app.api import chat as api
+    from app.chat.llm.gateway import Gateway
+    from app.chat.schemas import ExtractResult
+    from app.observability.call_logger import CallLogger
+
+    with inventory() as s:
+        _prepare_nearby(s)
+        _add_neighbor(s, "over", price=3300000)
+        s.commit()
+
+    class Local:
+        name = "local"
+        model = "test"
+
+        async def extract(self, text, previous):
+            return ExtractResult(intent="SEARCH", filters=SearchFilters(
+                ward_or_area="Cau Giay", price_max=3000000, amenities=["Wifi"]))
+
+        async def compose(self, text, listings):
+            raise AssertionError("Alternative explanations must remain factual")
+            yield "unreachable"
+
+    monkeypatch.setattr(api, "core_session_factory", inventory)
+    gateway = Gateway([Local()], {}, CallLogger())
+    turn = api.Turn("r", "c", "tenant", "find rooms")
+    frames = [frame async for frame in api._turn_events(turn, gateway, None, {}, {}, {})]
+    event = next(frame for frame in frames if frame.startswith("event: listings"))
+    cards = json.loads(event.split("data: ", 1)[1])["items"]
+    assert cards[0]["match_type"] == "NEARBY_PRICE"
+    assert turn.filters["price_max"] == 3000000
+    assert turn.listing_ids == ["over"]
+    assert turn.status == "OK"
+    assert len(gateway.call_logger.records) == 1
+
+
+def test_profile_chat_reuses_actual_recommender_and_logs_owned_snapshot(inventory, monkeypatch):
+    import app.db.session as db
+    from app.chat.profile import profile_reply
+    from app.db.models_ai import RecommendationRequest
+    from app.db.models_core import TenantProfile, TenantProfileAmenity
+
+    monkeypatch.setattr(db, "ai_session_factory", inventory)
+    with inventory() as s:
+        s.add(TenantProfile(id="profile", user_id="tenant", desired_province_id="p",
+            desired_ward_id="w", desired_room_type_id="t", price_min=1500000, price_max=3000000,
+            area_min=25, area_max=30, occupants=2, allow_personalization=True,
+            note="PRIVATE NOTE"))
+        s.flush()
+        s.add(TenantProfileAmenity(id="required", tenant_profile_id="profile", amenity_id="ac", is_required=True))
+        s.add(TenantProfileAmenity(id="preferred", tenant_profile_id="profile", amenity_id="wifi", is_required=False))
+        s.commit()
+        reply = profile_reply(s, "tenant", "RECOMMEND", request_id="profile-chat-request")
+        assert [item["id"] for item in reply.items] == ["current"]
+        assert reply.items[0]["matched_room_id"] == "match"
+        assert "AC" in reply.items[0]["amenities"]
+        assert "PRIVATE NOTE" not in reply.text
+        assert reply.filters["amenities"] == ["AC"]
+    with inventory() as s:
+        request = s.get(RecommendationRequest, "profile-chat-request")
+        assert request.user_id == "tenant" and request.source == "CHATBOT"
+        assert request.listing_ids == ["current"]
+        assert "PRIVATE NOTE" not in str(request.profile_snapshot)

@@ -3,7 +3,7 @@
 Tách riêng models_ai.py để không ai lỡ ghi vào bảng nghiệp vụ.
 """
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -17,6 +17,8 @@ class Province(CoreBase):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     code: Mapped[str] = mapped_column(String(50))
     name: Mapped[str] = mapped_column(String(100))
+    centroid_lat: Mapped[object | None] = mapped_column(Numeric(10, 8))
+    centroid_lng: Mapped[object | None] = mapped_column(Numeric(11, 8))
 
 
 class Ward(CoreBase):
@@ -26,6 +28,8 @@ class Ward(CoreBase):
     province_id: Mapped[str] = mapped_column(String(36), ForeignKey("provinces.id"))
     code: Mapped[str] = mapped_column(String(50))
     name: Mapped[str] = mapped_column(String(100))
+    centroid_lat: Mapped[object | None] = mapped_column(Numeric(10, 8))
+    centroid_lng: Mapped[object | None] = mapped_column(Numeric(11, 8))
 
 
 class RoomType(CoreBase):
@@ -125,7 +129,7 @@ class TenantProfile(CoreBase):
     desired_room_type_id: Mapped[str | None] = mapped_column(String(36))
     tenant_type: Mapped[str | None] = mapped_column(String(20))
     occupants: Mapped[int | None] = mapped_column(Integer)
-    move_in_date: Mapped[object | None] = mapped_column(DateTime)
+    move_in_date: Mapped[object | None] = mapped_column(Date)
     anchor_label: Mapped[str | None] = mapped_column(String(255))
     anchor_latitude: Mapped[object | None] = mapped_column(Numeric(10, 8))
     anchor_longitude: Mapped[object | None] = mapped_column(Numeric(11, 8))

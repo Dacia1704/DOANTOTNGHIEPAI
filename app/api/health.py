@@ -25,6 +25,8 @@ def _check_db(engine, label: str) -> dict:
                 from app.db.inventory import inventory_query
 
                 connection.execute(inventory_query().limit(0))
+                connection.execute(text("SELECT centroid_lat, centroid_lng FROM wards LIMIT 0"))
+                connection.execute(text("SELECT centroid_lat, centroid_lng FROM provinces LIMIT 0"))
             else:
                 connection.execute(
                     text("SELECT request_id FROM ai_chat_leases LIMIT 0")

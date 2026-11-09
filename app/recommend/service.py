@@ -120,10 +120,11 @@ def recommend(
     *,
     limit: int = 10,
     source: str = "HOME",
+    request_id: str | None = None,
 ) -> RecommendationResult:
     """Sinh danh sách gợi ý cho user."""
     started = datetime.now()
-    request_id = str(uuid.uuid4())
+    request_id = request_id or str(uuid.uuid4())
 
     profile = load_profile(session, user_id) or ProfileSnapshot()
     if not profile.allow_personalization:
