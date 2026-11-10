@@ -339,7 +339,7 @@ Tọa độ cơ sở/ảnh/giao dịch seed là mô phỏng để kiểm tra ch�
 
 ### Thông báo và cache sau khi cập nhật main
 
-FE có chuông thông báo realtime; BE dùng Redis cache, RabbitMQ và `notification_outbox` (Flyway V6). Backend tự áp dụng V6 khi khởi động; không seed lại database đã có V2. Có thể cấu hình `CACHE_TTL=30m`, `NOTIFICATIONS_RELAY_ENABLED=true`, `NOTIFICATIONS_RELAY_DELAY_MS=2000` trong `.env` BE. Phần đồng bộ địa chỉ vẫn giữ `ADDRESS_SYNC_ENABLED=false` khi chạy bình thường. Chi tiết: [thông báo Redis/RabbitMQ](../RentalManagement/docs/REDIS_RABBITMQ_NOTIFICATIONS.md), [kiến trúc backend](../RentalManagement/docs/BE_ARCHITECTURE_AND_DATABASE.md).
+FE có chuông thông báo realtime; BE dùng Redis cache, RabbitMQ và `notification_outbox` (Flyway V6). Backend tự áp dụng V6 khi khởi động; không seed lại database đã có V2. Có thể cấu hình `CACHE_TTL=30m`, `NOTIFICATIONS_RELAY_ENABLED=true`, `NOTIFICATIONS_RELAY_DELAY_MS=2000` trong `.env` BE. Phần đồng bộ địa chỉ vẫn giữ `ADDRESS_SYNC_ENABLED=false` khi chạy bình thường. Chi tiết: [thông báo Redis/RabbitMQ](../RentalManagement/docs/OPERATIONS.md#thong-bao), [kiến trúc backend](../RentalManagement/docs/RULE.md).
 
 ### 5.1. Frontend Angular
 
@@ -364,7 +364,7 @@ Output nằm ở `dist/library-frontend/browser`. `npm run build` chỉ tạo fr
 
 ### 5.2. Bản đồ và vị trí
 
-Chỉnh key trình duyệt tại `DOANTOTNGHIEPFE/src/environments/maptiler.config.ts`, dùng MapTiler Cloud cho style/tiles/geocoding và MapLibre để render. Giới hạn allowed origins của key cho localhost và domain triển khai; build lại sau khi đổi. Giữ attribution MapTiler/OpenStreetMap. Không cần Google Maps SDK. Định vị trình duyệt cần localhost hoặc HTTPS và quyền người dùng; vẫn có thể nhập tọa độ/chọn ghim thủ công. Tọa độ thuộc cơ sở, dùng chung cho các phòng/tin. Chi tiết: [bản đồ FE](../DOANTOTNGHIEPFE/docs/maps.md).
+Chỉnh key trình duyệt tại `DOANTOTNGHIEPFE/src/environments/maptiler.config.ts`, dùng MapTiler Cloud cho style/tiles/geocoding và MapLibre để render. Giới hạn allowed origins của key cho localhost và domain triển khai; build lại sau khi đổi. Giữ attribution MapTiler/OpenStreetMap. Không cần Google Maps SDK. Định vị trình duyệt cần localhost hoặc HTTPS và quyền người dùng; vẫn có thể nhập tọa độ/chọn ghim thủ công. Tọa độ thuộc cơ sở, dùng chung cho các phòng/tin. Chi tiết: [bản đồ FE](../DOANTOTNGHIEPFE/docs/UI.md#ban-do).
 
 ### 5.3. VNPay và PDF
 
@@ -379,9 +379,9 @@ VNPAY_QUERY_URL=https://sandbox.vnpayment.vn/merchant_webapi/api/transaction
 VNPAY_QUERY_IP=127.0.0.1
 ```
 
-Thiếu hash secret, checkout báo 503; các module khác vẫn chạy. Đăng ký IPN URL HTTPS public kết thúc `/api/payments/vnpay/ipn` tại merchant. Return về FE không tự xác nhận thu tiền; BE kiểm tra IPN hoặc QueryDr. Công cụ tunnel/proxy và luồng kiểm thử nằm trong [VNPay sandbox](../RentalManagement/docs/VNPAY_SANDBOX.md).
+Thiếu hash secret, checkout báo 503; các module khác vẫn chạy. Đăng ký IPN URL HTTPS public kết thúc `/api/payments/vnpay/ipn` tại merchant. Return về FE không tự xác nhận thu tiền; BE kiểm tra IPN hoặc QueryDr. Công cụ tunnel/proxy và luồng kiểm thử nằm trong [VNPay sandbox](../RentalManagement/docs/OPERATIONS.md#vnpay).
 
-Mẫu hợp đồng ở `RentalManagement/src/main/resources/reports/rental-contract.jrxml`; font NotoSans và license đi kèm phải được giữ. PDF thật cần Cloudinary hợp lệ và xử lý job; file seed chỉ chứa tracking mô phỏng. Các property `app.rental.jobs-enabled`, `app.rental.job-delay-ms`, `app.rental.cleanup-delay-ms`, `app.rental.contract-terms` có thể đặt trong `.env` BE. Chi tiết quyền truy cập, lease/job và template: [luồng thuê và PDF](../RentalManagement/docs/RENTAL_BOOKING.md).
+Mẫu hợp đồng ở `RentalManagement/src/main/resources/reports/rental-contract.jrxml`; font NotoSans và license đi kèm phải được giữ. PDF thật cần Cloudinary hợp lệ và xử lý job; file seed chỉ chứa tracking mô phỏng. Các property `app.rental.jobs-enabled`, `app.rental.job-delay-ms`, `app.rental.cleanup-delay-ms`, `app.rental.contract-terms` có thể đặt trong `.env` BE. Chi tiết quyền truy cập, lease/job và template: [luồng thuê và PDF](../RentalManagement/docs/BUSINESS.md).
 
 ### 5.4. Chạy frontend trong Docker (tùy chọn)
 
@@ -457,8 +457,8 @@ AI có `scripts.benchmark_local` để đo model, `scripts.evaluate_chat` và `s
 
 Tài liệu còn dùng:
 
-- [API backend](../RentalManagement/docs/api.md), [Property API](../RentalManagement/docs/PROPERTY_API.md), [thuê phòng và PDF](../RentalManagement/docs/RENTAL_BOOKING.md), [VNPay](../RentalManagement/docs/VNPAY_SANDBOX.md).
-- [API phía FE](../DOANTOTNGHIEPFE/docs/api.md), [quản lý cơ sở](../DOANTOTNGHIEPFE/docs/PROPERTY_UI.md), [cây loại phòng](../DOANTOTNGHIEPFE/docs/ROOM_TYPE_TREE.md), [UI hợp đồng](../DOANTOTNGHIEPFE/docs/RENTAL_CONTRACT_UI.md), [bản đồ](../DOANTOTNGHIEPFE/docs/maps.md).
+- [API backend](../RentalManagement/docs/api.md), [Property API](../RentalManagement/docs/api.md#property-api), [thuê phòng và PDF](../RentalManagement/docs/BUSINESS.md), [VNPay](../RentalManagement/docs/OPERATIONS.md#vnpay).
+- [API phía FE](../RentalManagement/docs/api.md), [quản lý cơ sở](../DOANTOTNGHIEPFE/docs/UI.md#co-so), [cây loại phòng](../DOANTOTNGHIEPFE/docs/UI.md#loai-phong), [UI hợp đồng](../DOANTOTNGHIEPFE/docs/UI.md#hop-dong), [bản đồ](../DOANTOTNGHIEPFE/docs/UI.md#ban-do).
 - [Tương thích Angular/Node](https://angular.dev/reference/versions), [cấu hình Spring Boot](https://docs.spring.io/spring-boot/reference/features/external-config.html), [chạy FastAPI/Uvicorn](https://fastapi.tiangolo.com/deployment/manually/).
 
 ## 8. Kết quả dọn source và kiểm tra ngày 09/11/2026
