@@ -28,20 +28,20 @@ DoAn/
 │   ├── src/app/features/   # auth, tenant, landlord, admin
 │   ├── src/app/shared/     # components, pages, utils
 │   ├── src/environments/  # API và MapTiler
-│   ├── postman/, scripts/ # mock và smoke/E2E
+│   ├── scripts/          # tiện ích phát triển (test đã tạm gỡ)
 │   └── docs/              # tài liệu API/UI còn dùng
 ├── RentalManagement/
 │   ├── src/main/java/com/tamdaptit/rentalmanagement/
 │   │                       # auth, identity, property, room, listing,
 │   │                       # rental, chat, review, report, payment...
-│   ├── src/main/resources/db/migration/  # Flyway: V1/V2 lõi, V6–V10 nâng cấp và seed cộng đồng
+│   ├── src/main/resources/db/migration/  # Flyway: V1/V2 lõi, V6–V12 nâng cấp và seed cộng đồng
 │   ├── src/main/resources/reports/       # mẫu hợp đồng PDF
 │   └── scripts/            # setup DB, sinh seed, proxy IPN
 └── AIService/
     ├── app/                # API, chat, recommendation, embedding, JWT/log
     ├── alembic/            # migration rental_ai
     ├── scripts/            # setup, seed AI, build vector, đánh giá
-    ├── tests/, data/       # kiểm thử và câu hỏi đánh giá
+    ├── data/               # câu hỏi và dữ liệu đánh giá AI
     └── README.md           # tài liệu chung này
 ```
 
@@ -51,7 +51,7 @@ Giữ file lock, migration, font/license, test và script vận hành đang dùn
 
 ```text
 Frontend :4200
-  ├── /api, /ws → Spring Boot :8080 → rental_db (Flyway V1, V2, V6, V7, V8, V9, V10)
+  ├── /api, /ws → Spring Boot :8080 → rental_db (Flyway V1, V2, V6, V7, V8, V9, V10, V11, V12)
   └── /ai       → FastAPI :8000
                     ├── chỉ đọc dữ liệu nghiệp vụ rental_db
                     ├── đọc/ghi rental_ai (Alembic)
@@ -152,13 +152,13 @@ Set-Location E:\SpringBoot\DoAn\RentalManagement
 .\scripts\setup-demo.ps1
 ```
 
-Script tự bật Docker hạ tầng → Maven clean → Flyway tới V1 → đồng bộ 34 tỉnh và 3.321 phường từ API → xuất snapshot → sinh V2 dữ liệu nghiệp vụ và V10 dữ liệu cộng đồng → áp dụng các migration còn lại → thoát. V9 tạo schema cộng đồng/kiểm duyệt, sau đó V10 tự nạp bài viết, bình luận và tương tác. Không cần mở file seed cộng đồng trong DataGrip hoặc chạy SOURCE riêng. Không tạo quận/huyện riêng vì nguồn và schema dùng tỉnh → phường/xã.
+Script tự bật Docker hạ tầng → Maven clean → Flyway tới V1 → đồng bộ 34 tỉnh và 3.321 phường từ API → xuất snapshot → sinh V2 dữ liệu nghiệp vụ và V12 dữ liệu cộng đồng → áp dụng các migration còn lại → thoát. V11 tạo schema cộng đồng/kiểm duyệt, sau đó V12 tự nạp bài viết, bình luận và tương tác. Không cần mở file seed cộng đồng trong DataGrip hoặc chạy SOURCE riêng. Không tạo quận/huyện riêng vì nguồn và schema dùng tỉnh → phường/xã.
 
 Trong hai tiến trình setup, script tắt job PDF, relay thông báo và RabbitMQ listener vì bước V1 chưa có `notification_outbox`; các chức năng này dùng cấu hình bình thường khi chạy backend sau setup. DevTools restart cũng được tắt bằng JVM property để lỗi khởi động trả đúng exit code cho script.
 
 Mặc định có 1.071 tài khoản (3 admin, 68 landlord, 1.000 tenant), 1.088 cơ sở/tin đăng, 7.752 phòng, hơn 26.000 ảnh, 6.000 review và 1.000 report nghiệp vụ. Cộng đồng có thêm **600 bài, 7.184 bình luận/trả lời, 880 ảnh**, cùng cảm xúc, lưu bài, follow, report, hàng đợi kiểm duyệt và yêu cầu xét lại. Số lượng tương tác phụ thuộc tài khoản và listing công khai thực tế. Chi tiết nằm ở `RentalManagement/scripts/data/demo-counts.json` và `RentalManagement/scripts/data/community-counts.json`. Ba URL ảnh cộng đồng được giữ đúng như dữ liệu đã cung cấp; caption viết theo ngữ cảnh chia sẻ ý tưởng không gian, không gắn nhãn dữ liệu mẫu trên UI.
 
-Tên tài khoản, tên cơ sở, địa chỉ và nội dung hiển thị được sinh tự nhiên, không dùng “Người thuê Demo”, “Nhà trọ Demo” hoặc tiền tố `[DEMO]`. Đây vẫn là dữ liệu được tạo cho dự án, không phải thông tin cá nhân hoặc tin cho thuê đã xác minh ngoài đời. Hàm sinh tên/email và tên nhà ở [seed_profiles.py](../RentalManagement/scripts/seed_profiles.py); danh sách tài khoản ở [seed-accounts.json](../RentalManagement/scripts/data/seed-accounts.json). Ba email đăng nhập chính vẫn giữ nguyên; tài khoản còn lại có email theo tên tại domain `trotot.example.test`, mật khẩu `123456`. V10 chọn tác giả bằng ID từ manifest nên không phụ thuộc tên/email.
+Tên tài khoản, tên cơ sở, địa chỉ và nội dung hiển thị được sinh tự nhiên, không dùng “Người thuê Demo”, “Nhà trọ Demo” hoặc tiền tố `[DEMO]`. Đây vẫn là dữ liệu được tạo cho dự án, không phải thông tin cá nhân hoặc tin cho thuê đã xác minh ngoài đời. Hàm sinh tên/email và tên nhà ở [seed_profiles.py](../RentalManagement/scripts/seed_profiles.py); danh sách tài khoản ở [seed-accounts.json](../RentalManagement/scripts/data/seed-accounts.json). Ba email đăng nhập chính vẫn giữ nguyên; tài khoản còn lại có email theo tên tại domain `trotot.example.test`, mật khẩu `123456`. V12 chọn tác giả bằng ID từ manifest nên không phụ thuộc tên/email.
 
 Muốn tăng số lượng trước khi dựng DB mới:
 
@@ -166,7 +166,7 @@ Muốn tăng số lượng trước khi dựng DB mới:
 .\scripts\setup-demo.ps1 -Landlords 136 -Tenants 2000 -PropertiesPerLandlord 16 -RentalsPerTenant 3 -CommunityPosts 2000
 ```
 
-Chỉ đổi số lượng seed khi dựng **database mới**. Nếu V2 đã áp dụng, script giữ nguyên cả file V2/V10 và chỉ áp dụng migration còn thiếu; không sinh lại seed theo tham số mới. Không sửa V2 hoặc V10 đã áp dụng vì Flyway lưu checksum. Script không xóa DB; vận hành thường ngày dùng mục 3. Snapshot trong repo cho phép dựng offline bằng các migration đã sinh, gồm V2 và V10: bật hạ tầng rồi chạy BE bình thường để Flyway áp dụng. Script đồng bộ mới nhất cần mạng. Database có lịch sử migration cũ V1–V6/V14/V15 không được coi là DB mới; không dùng repair để ép khớp lịch sử khác source.
+Chỉ đổi số lượng seed khi dựng **database mới**. Nếu V2 đã áp dụng, script giữ nguyên cả file V2/V12 và chỉ áp dụng migration còn thiếu; không sinh lại seed theo tham số mới. Không sửa V2 hoặc V12 đã áp dụng vì Flyway lưu checksum. Script không xóa DB; vận hành thường ngày dùng mục 3. Snapshot trong repo cho phép dựng offline bằng các migration đã sinh, gồm V2 và V12: bật hạ tầng rồi chạy BE bình thường để Flyway áp dụng. Script đồng bộ mới nhất cần mạng. Database có lịch sử migration cũ V1–V6/V14/V15 không được coi là DB mới; không dùng repair để ép khớp lịch sử khác source.
 
 Nếu bạn chủ động dựng lại từ đầu bằng cách xóa cả `rental_db` và `rental_ai`: dừng BE/AI trước khi xóa, giữ nguyên `.env` đã cấu hình, rồi chạy lại **hai bước** sau. Script backend sẽ tạo lại dữ liệu nghiệp vụ và cộng đồng; script AI sẽ tạo lại schema AI, migration, dữ liệu AI và embedding:
 
@@ -187,7 +187,7 @@ python scripts/generate-demo-seed.py --landlords 136 --tenants 2000 --properties
 python scripts/generate-community-seed.py --posts 2000 --accounts demo-preview.accounts.json --output community-preview.sql
 ```
 
-Generator lõi dùng snapshot `scripts/data/administrative-units.json` và `reference-catalog.sql`; ID tỉnh/phường được tra theo mã hành chính. Landlord/tenant tối thiểu 4, cơ sở mỗi landlord chọn 8 hoặc 16, số hợp đồng lịch sử tối thiểu 1. Bản xem trước tạo kèm `.counts.json` và `.accounts.json`; truyền file tài khoản đó cho generator cộng đồng bằng `--accounts`. Đầu ra mặc định cộng đồng là `V10__seed_community_demo_data.sql`; dùng `--output` ngoài thư mục migration khi chỉ xem trước. Xem [seed cộng đồng](../RentalManagement/scripts/seed-community.README.md).
+Generator lõi dùng snapshot `scripts/data/administrative-units.json` và `reference-catalog.sql`; ID tỉnh/phường được tra theo mã hành chính. Landlord/tenant tối thiểu 4, cơ sở mỗi landlord chọn 8 hoặc 16, số hợp đồng lịch sử tối thiểu 1. Bản xem trước tạo kèm `.counts.json` và `.accounts.json`; truyền file tài khoản đó cho generator cộng đồng bằng `--accounts`. Đầu ra mặc định cộng đồng là `V12__seed_community_demo_data.sql`; dùng `--output` ngoài thư mục migration khi chỉ xem trước. Xem [seed cộng đồng](../RentalManagement/scripts/seed-community.README.md).
 
 ### 2.3. Tạo môi trường Python và cấu hình AI
 
@@ -243,7 +243,7 @@ Script dùng Python trong venv, lần lượt:
 
 Alembic quản lý riêng `rental_ai`, head hiện tại `20261030_ai_integration`. `seed_demo_ai` đọc tenant/tin công khai trong core và chỉ upsert fixture AI theo ID cố định. Bao gồm hội thoại, feedback, recommendation snapshots/events, cache, usage ngày cũ, lock, lease đã hết hạn, sync state và eval fixture. Nội dung hội thoại/feedback tự nhiên, không có tiền tố Demo; metadata kỹ thuật vẫn đánh dấu fixture để không bị hiểu là kết quả đo chất lượng model. Không gọi LLM, không tính vào quota chat hôm nay.
 
-`build_embeddings` tạo vector thật và log đồng bộ thật, hoàn tất dữ liệu cho các bảng AI còn lại. Lần đầu có thể tải model. Không dùng vector ngẫu nhiên làm giả embedding. Dữ liệu nghiệp vụ được seed bằng V2 và cộng đồng bằng V10 của BE; AI chỉ seed bảng riêng trong `rental_ai`, không tạo thêm bài viết hay đánh giá listing.
+`build_embeddings` tạo vector thật và log đồng bộ thật, hoàn tất dữ liệu cho các bảng AI còn lại. Lần đầu có thể tải model. Không dùng vector ngẫu nhiên làm giả embedding. Dữ liệu nghiệp vụ được seed bằng V2 và cộng đồng bằng V12 của BE; AI chỉ seed bảng riêng trong `rental_ai`, không tạo thêm bài viết hay đánh giá listing.
 
 ### 2.5. Chạy model bằng Docker
 
