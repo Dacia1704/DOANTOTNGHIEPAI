@@ -14,7 +14,7 @@ from app.db.models_ai import AiBase
 from app.db.models_core import CoreRole, CoreUser, CoreUserRole
 from app.db.session import ai_session_factory, core_session_factory
 
-VERSION = "demo-fixture-v1"
+VERSION = "seed-fixture-v2"
 
 
 def uid(key):
@@ -35,22 +35,22 @@ def build_rows(users, cards, now):
         rows["ai_conversations"].append(dict(id=conversation, user_id=user, created_at=created, updated_at=created))
         rows["ai_messages"].extend([
             dict(id=uid("user-message/" + user), conversation_id=conversation, request_id=request,
-                 role="USER", content=f"[Demo] Tìm phòng ở {card['ward_name']} dưới {int(card['price'])} đồng.",
+                 role="USER", content=f"Mình muốn tìm phòng ở {card['ward_name']}, ngân sách dưới {int(card['price']):,} đồng mỗi tháng.",
                  created_at=created),
             dict(id=message, conversation_id=conversation, request_id=request, role="ASSISTANT",
-                 content=f"[Demo] {card['title']}: {card['price_text']}, {card['area_text']}.",
+                 content=f"Bạn có thể tham khảo {card['title']}, giá {card['price_text']}, diện tích {card['area_text']}. Hãy xem thêm tiện ích và liên hệ chủ trọ để hẹn xem phòng.",
                  intent="SEARCH", status="OK", filters_json=filters, listing_ids=[card["id"]],
                  extract_provider="rules", compose_provider="rules", total_latency_ms=0,
-                 fallback_reason="demo_fixture", created_at=created),
+                 fallback_reason="seed_fixture", created_at=created),
         ])
         for step in ("EXTRACT", "COMPOSE"):
             rows["llm_call_logs"].append(dict(id=uid(f"call/{user}/{step}"), request_id=request,
                 message_id=message, user_id=user, step=step, attempt_no=1, provider="rules", model=VERSION,
                 status="SUCCESS", is_final=True, latency_ms=0, input_tokens=0, output_tokens=0,
-                est_cost_usd=0, error_detail="Demo fixture; no model was called", created_at=created))
+                est_cost_usd=0, error_detail="Seed fixture; no model was called", created_at=created))
         rows["ai_feedback"].append(dict(id=uid("feedback/" + user), message_id=message, user_id=user,
             rating="UP" if index % 5 else "DOWN", reason=None if index % 5 else "OTHER",
-            comment="Dữ liệu đánh giá mẫu, không phải phản hồi người dùng thật.", created_at=created))
+            comment="Gợi ý khá sát nhu cầu, mình muốn xem thêm phòng có cửa sổ." if index % 5 else "Mình cần phòng gần hơn và trong ngân sách đã chọn.", created_at=created))
         rows["ai_usage_daily"].append(dict(user_id=user, usage_date=created.date(), request_count=1,
             local_count=0, external_count=0, input_tokens=0, output_tokens=0, est_cost_usd=0))
         rows["ai_user_locks"].append(dict(user_id=user))
@@ -74,7 +74,7 @@ def build_rows(users, cards, now):
     rows["ai_eval_runs"].append(dict(id=uid("eval-fixture"), kind="FIXTURE", name=VERSION,
         config={"fixture": True}, metrics={"fixture": True, "users": len(users)},
         dataset_note="Synthetic UI fixture only; no model quality measurement.", created_at=created))
-    rows["sync_state"].append(dict(name="demo_seed", value=VERSION, updated_at=now))
+    rows["sync_state"].append(dict(name="seed_data", value=VERSION, updated_at=now))
     return rows
 
 
@@ -110,7 +110,7 @@ def main():
                     session.execute(statement.on_duplicate_key_update(**{key: statement.inserted[key]}))
         session.commit()
     for table, entries in rows.items():
-        print(f"{table}: {len(entries)} demo rows")
+        print(f"{table}: {len(entries)} seeded rows")
     print("Build real vectors next: python -m scripts.build_embeddings")
 
 
