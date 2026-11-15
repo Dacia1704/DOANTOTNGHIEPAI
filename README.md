@@ -1,6 +1,6 @@
 # Rental Management — hướng dẫn chung FE, BE và AIService
 
-Cập nhật 13/11/2026. Tài liệu chung cho ba source `DOANTOTNGHIEPFE` (FE), `RentalManagement` (BE) và `AIService`. Các lệnh dưới đây dùng PowerShell trên Windows và cấu trúc ba thư mục nằm cạnh nhau. Có thể thay `E:\SpringBoot\DoAn` bằng thư mục của bạn.
+Cập nhật 15/11/2026. Tài liệu chung cho ba source `DOANTOTNGHIEPFE` (FE), `RentalManagement` (BE) và `AIService`. Các lệnh dưới đây dùng PowerShell trên Windows và cấu trúc ba thư mục nằm cạnh nhau. Có thể thay `E:\SpringBoot\DoAn` bằng thư mục của bạn.
 
 ## Ý tưởng và chức năng
 
@@ -480,3 +480,107 @@ Tài liệu còn dùng:
 Đợt kiểm tra này không dựng lại DB/seed, không chạy giao dịch VNPay, upload Cloudinary hoặc toàn bộ luồng tích hợp với model thật. Không thay dữ liệu ứng dụng đang có.
 
 Sau khi cập nhật `origin/main` vào `refactor` ngày 09/11/2026: FE build thành công, 42 file/229 test FE đạt; BE compile source/test và chạy 34 test kiến trúc, cache, WebSocket, liên hệ tin, review, validation thuê và PDF đều đạt. Hai conflict BE (README và application.yaml) đã được giải quyết bằng cách giữ tài liệu chung ở AIService, đồng thời giữ cả cấu hình đồng bộ địa chỉ và cache/thông báo mới. Chưa chạy nhóm test hạ tầng thông báo cần MySQL/Redis/RabbitMQ thật.
+
+## 9. Thuật toán xếp hạng tin landing và bài viết cộng đồng
+
+### 9.1. Trạng thái triển khai
+
+Hai thuật toán ở mục 9.2 và 9.3 **đã được triển khai phiên bản `listing-v1` và `community-v1` tại BE ngày 15/11/2026**. Landing mặc định dùng “Đề xuất cho bạn”; lựa chọn Mới nhất/Giá thấp đến cao/Giá cao đến thấp nằm trong “Bộ lọc nâng cao” và được thực hiện trên toàn bộ kết quả trước khi phân trang. Trọng số và tỷ lệ vị trí là cấu hình khởi đầu để đo thử, chưa phải cam kết lượt hiển thị của gói dịch vụ.
+
+| Luồng | Cách xếp hạng hiện có trong source |
+| --- | --- |
+| Danh sách tin công khai của BE, dùng cho landing | Điểm tổng hợp + phân bổ 5/3/2 theo ưu tiên + đa dạng chủ trọ + lượt hiển thị; xem [ListingDiscoveryService.java](../RentalManagement/src/main/java/com/tamdaptit/rentalmanagement/discovery/ListingDiscoveryService.java), [FeedRanking.java](../RentalManagement/src/main/java/com/tamdaptit/rentalmanagement/discovery/FeedRanking.java). Điều kiện công khai và quyền lợi còn hiệu lực tiếp tục lấy từ [ListingRepository.java](../RentalManagement/src/main/java/com/tamdaptit/rentalmanagement/listing/repository/ListingRepository.java) và `ListingServiceImpl` |
+| Bảng tin cộng đồng của BE | Bảng tin chung và “Đang theo dõi” dùng điểm hồ sơ/chủ đề + tương tác + theo dõi + độ mới + uy tín, sau đó đa dạng tác giả; xem [CommunityDiscoveryService.java](../RentalManagement/src/main/java/com/tamdaptit/rentalmanagement/discovery/CommunityDiscoveryService.java). “Đã lưu”, “Bài của tôi” và hồ sơ tác giả giữ thứ tự thời gian với quyền đọc riêng |
+| API gợi ý AI theo hồ sơ | Đã có lọc cứng, chấm điểm hồ sơ + vector hành vi + độ mới + ưu tiên, chọn một phòng phù hợp cho mỗi tin rồi sắp lại bằng MMR; xem [service.py](app/recommend/service.py), [scoring.py](app/recommend/scoring.py), [rerank.py](app/recommend/rerank.py) |
+
+Bộ gợi ý AI theo hồ sơ vẫn là luồng riêng. Hai bảng tin mới được BE tính trực tiếp từ dữ liệu nghiệp vụ, không cần gọi LLM/Ollama để sắp thứ tự. Kiến trúc chung là **lọc ứng viên → chấm điểm → sắp lại để bảo đảm đa dạng và phân bổ hiển thị**, tham khảo [Recommendation systems overview](https://developers.google.com/machine-learning/recommendation/overview/types) và [Re-ranking](https://developers.google.com/machine-learning/recommendation/dnn/re-ranking) của Google.
+
+### 9.2. Landing: phân bổ theo quyền lợi, chấm điểm và luân phiên
+
+**Mục tiêu:** phối hợp tin được ưu tiên từ gói tháng và boost với tin thường; ưu tiên tin phù hợp, đủ thông tin và còn khả năng cho thuê.
+
+**Bước 1 — Lọc ứng viên.** Chỉ lấy tin `PUBLISHED`, còn hạn, chủ trọ `ACTIVE`, đúng điều kiện công khai và tin công khai mới nhất của cơ sở. Với luồng tìm phòng, các điều kiện giá, loại phòng, diện tích và tiện ích phải khớp trên cùng một phòng còn khả dụng. Tin đã hết phòng phải được loại khỏi luồng đề xuất phòng trống.
+
+**Bước 2 — Xác định quyền lợi còn hiệu lực.** Dùng quy tắc hiện có của BE:
+
+```text
+priority = 0 nếu tin bị tắt ưu tiên
+priority = max(ưu tiên gói tháng hợp lệ, ưu tiên boost hợp lệ) trong các trường hợp còn lại
+```
+
+Kiểm tra thời hạn, trạng thái gói, kỳ gói tháng và phân bổ thực tế cho tin. Chỉ mua gói không có nghĩa mọi tin đều được ưu tiên cao; áp dụng đúng mức mặc định và các suất đã chọn. Một tin có cả gói tháng và boost vẫn là một ứng viên, không cộng hai mức ưu tiên hoặc hiển thị trùng. Khi quyền lợi hết hạn, tính lại mức còn hợp lệ; nếu không còn quyền lợi thì về nhóm thường, với điều kiện bản thân tin vẫn đủ điều kiện công khai.
+
+**Bước 3 — Chấm điểm trong từng nhóm.** Chuẩn hóa mỗi thành phần về `[0, 1]`, rồi điều chỉnh theo lượt đã hiển thị:
+
+```text
+S_landing = 0.35 * relevance
+          + 0.25 * quality
+          + 0.25 * engagement
+          + 0.15 * freshness
+
+freshness = exp(-age_days / 30)
+engagement = min(1, (contacts_7d + 1) / (max(views_7d, contacts_7d) + 10))
+S_serving = S_landing / (1 + 0.15 * seen_by_user_7d)
+          - 0.025 * log(1 + impressions_30d)
+```
+
+| Thành phần | Cách xác định đề xuất |
+| --- | --- |
+| `relevance` | Trong các phòng phù hợp bộ lọc, lấy phòng có điểm cao nhất: 45% khu vực + 35% giá + 10% diện tích + 10% loại phòng. Hồ sơ chỉ dùng khi `allow_personalization=true`; điều kiện tìm kiếm chủ động được ưu tiên hơn hồ sơ |
+| `quality` | Mức đầy đủ của giá, diện tích, ảnh, địa chỉ, tiện ích và mô tả; dữ liệu thiếu làm giảm điểm |
+| `engagement` | Tỷ lệ liên hệ/xem có làm trơn từ `listing_daily_stats` trong 7 ngày; giới hạn về `[0,1]`. V1 chưa thêm tín hiệu lưu tin vào điểm landing |
+| `freshness` | Tuổi tin tính từ lần xuất bản hợp lệ; sửa mô tả không làm mới tuổi tin |
+
+Không cộng trực tiếp số lượt xem thô vào điểm: tin đã được hiển thị nhiều sẽ có lợi thế tích lũy quá lớn. Tin chưa có thống kê nhận điểm tương tác có làm trơn là 0,1. Các bộ đếm xem/liên hệ hiện có là dữ liệu tổng hợp nghiệp vụ, chưa bảo đảm mỗi lượt là một người khác nhau; tín hiệu hiển thị mới có khử lặp theo tài khoản và thời gian.
+
+**Bước 4 — Phân bổ và luân phiên.** Mẫu mức ưu tiên trong mỗi 10 vị trí là `[2,1,2,0,2,1,2,0,2,1]`, tương ứng 5 tin cao, 3 tin thấp và 2 tin thường khi đủ nguồn. Trong mỗi nhóm, ưu tiên điểm sau điều chỉnh lượt hiển thị. Vị trí thứ 10 là lượt khám phá, chọn theo `0.6 * freshness + 0.4 / (1 + impressions_30d)` trong nhóm đủ điều kiện. Không xoay ngẫu nhiên giữa các lần tải thêm của cùng phiên.
+
+Giới hạn khoảng 2 tin/chủ trọ trong 10 vị trí khi đủ nguồn tin. Nhóm thiếu ứng viên sẽ nhường vị trí cho nhóm khác. Nếu vẫn thiếu, có thể nới giới hạn cùng chủ trọ; không nới điều kiện công khai, thời hạn hoặc khả dụng. Gắn nhãn ưu tiên theo quyền lợi thực tế. Gói tháng và boost cùng mức được tham gia cùng nhóm, không tự đặt boost luôn cao hơn gói tháng.
+
+### 9.3. Cộng đồng: kết hợp sở thích, tương tác, theo dõi và độ mới
+
+**Mục tiêu:** bài hữu ích, phù hợp vẫn có thể được đề xuất sau khi đăng; bài mới và tác giả mới vẫn có cơ hội tiếp cận.
+
+**Bước 1 — Lọc ứng viên.** Luồng đề xuất chỉ lấy bài `VISIBLE`, chưa xóa, tác giả `ACTIVE`. Bài hạn chế/chờ duyệt/ẩn không được đưa vào nguồn đề xuất. Trong mục “Đang theo dõi”, giới hạn ứng viên theo tác giả đang theo dõi. Mục “Đã lưu” và “Bài của tôi” tiếp tục áp dụng quyền truy cập tương ứng.
+
+Tìm kiếm chỉ dùng từ khóa/hashtag; không yêu cầu khu vực. Khi có truy vấn, lọc mức khớp trước rồi dùng điểm xếp hạng để phân biệt các bài có mức khớp tương đương.
+
+**Bước 2 — Chấm điểm.** Chuẩn hóa các thành phần về `[0, 1]`:
+
+```text
+S_community = 0.30 * interest
+            + 0.25 * engagement
+            + 0.20 * following
+            + 0.15 * freshness
+            + 0.10 * trust
+
+freshness = exp(-age_hours / 48)
+E_raw = log(1 + U_reactions + 3 * U_commenters + 4 * U_saves)
+S_serving = S_community / (1 + 0.25 * seen_by_user_7d)
+```
+
+`U_reactions`, `U_commenters`, `U_saves` là số tài khoản khác nhau có tương tác hợp lệ trong cửa sổ gần đây, ban đầu đề xuất 24 giờ. Loại tương tác tự tạo của tác giả và giới hạn mỗi tài khoản đóng góp một lần cho mỗi loại tín hiệu trên một bài. Chuẩn hóa `E_raw` bằng ngưỡng thống kê cố định trong kỳ xếp hạng, ví dụ percentile 95, rồi chặn về `[0, 1]`. Không lấy số bình luận thô để tránh một tài khoản gửi nhiều bình luận làm tăng điểm.
+
+| Thành phần | Ý nghĩa |
+| --- | --- |
+| `interest` | Khi có khu vực mong muốn: 75% mức khớp khu vực + 25% chủ đề. Khu vực xét phường chính, các phường đã chọn, tỉnh/thành trong hồ sơ; đối chiếu `area`, nội dung và vị trí tin phòng đính kèm, chuẩn hóa dấu tiếng Việt. Đúng phường được 1; chỉ đúng tỉnh khi đã chọn phường được 0,4; khác khu vực được 0. Hashtag lấy từ bài đã lưu/thả cảm xúc/bình luận trong 90 ngày, tối đa 200 bài, chưa dùng embedding cộng đồng |
+| `engagement` | Tương tác hợp lệ gần đây; bài cũ nhận tương tác mới có thể tăng điểm trở lại |
+| `following` | Bằng 1 khi đang theo dõi tác giả, ngược lại bằng 0; trong nguồn chỉ theo dõi, thành phần này là hằng số |
+| `freshness` | Giảm dần từ thời điểm tạo; chỉnh sửa không đặt lại tuổi bài |
+| `trust` | `1 / (1 + số nội dung từng bị xử lý HIDDEN/REMOVED đã xác nhận)`; không có vi phạm thì bằng 1. Báo cáo chưa xác minh không tự động làm giảm uy tín |
+
+Thiếu khu vực thì chỉ dùng điểm chủ đề; thiếu cả lịch sử chủ đề thì dùng hằng số trung lập 0,5 cho `interest`. Khách chưa đăng nhập hoặc người tắt cá nhân hóa không dùng hồ sơ/lịch sử hashtag; thứ tự dựa vào các tín hiệu chung. Theo dõi là lựa chọn chủ động, vẫn được áp dụng cho người đăng nhập. Quyền lợi gói tháng/boost của tin phòng không tự chuyển sang bài viết cộng đồng.
+
+Ví dụ hồ sơ muốn ở Cầu Giấy: các bài có khu vực/tin đính kèm phù hợp được cộng điểm trước khi phối hợp các tín hiệu còn lại. Bài Quận 7/Bình Tân không còn đứng đầu chỉ vì vừa đăng. Đây là ưu tiên theo điểm, không phải bộ lọc cứng: bài ngoài khu vực vẫn có thể xuất hiện do tương tác, theo dõi hoặc lượt khám phá.
+
+**Bước 3 — Sắp lại danh sách.** Dành khoảng 10% vị trí để khám phá bài mới ít lượt hiển thị nhưng vẫn đủ điều kiện. Hạn chế hai bài liền nhau cùng tác giả và tối đa khoảng 2 bài/tác giả trong 10 vị trí khi đủ nguồn. Giảm ưu tiên bài đã xem nhiều lần, khử trùng nội dung và giữ đa dạng chủ đề. Khi thiếu ứng viên, nới giới hạn đa dạng trước; không đưa bài không đủ điều kiện vào để lấp danh sách.
+
+### 9.4. Dữ liệu, phân trang và đánh giá khi triển khai
+
+- FE dùng [FeedImpressionDirective](../DOANTOTNGHIEPFE/src/app/shared/directives/feed-impression.directive.ts) để ghi nhận thẻ hiển thị ít nhất 50% liên tục 1 giây khi tab đang mở. Gom tối đa 50 ID/request, gửi `POST /api/discovery/impressions` với `surface=LISTING|COMMUNITY`. Chỉ lưu tín hiệu tài khoản đã đăng nhập; khách chưa đăng nhập chưa có lịch sử xem cá nhân.
+- Migration V13 thêm thời điểm cảm xúc và `feed_impressions`, V14 ước lượng tuổi cảm xúc lịch sử theo bài/bình luận để tránh tất cả tương tác cũ cùng trở thành xu hướng khi triển khai. Lượt hiển thị lưu theo người dùng, ngày, loại bảng tin và ID; các lần ghi lặp trong 30 phút chỉ tính một lượt. Hiển thị tin phòng hợp lệ đồng thời tăng `listing_daily_stats.view_count`; mở số điện thoại thành công của người khác tăng `contact_count` theo ngày (bao gồm khách, loại lượt tự xem số của chủ tin). Request tải API không được coi là lượt hiển thị. Người đã tắt cá nhân hóa không được ghi lịch sử hiển thị mới và không bị điều chỉnh điểm theo lịch sử xem cá nhân. V1 không dùng lượt sao chép liên kết để tính điểm.
+- BE xác thực quyền lợi gói, trạng thái tài khoản/tin, quyền đọc và tính điểm. Quyền DB và bộ recommendation riêng của AIService giữ nguyên; không thêm quyền ghi DB nghiệp vụ cho AIService.
+- [RankingSessions](../RentalManagement/src/main/java/com/tamdaptit/rentalmanagement/discovery/RankingSessions.java) giữ thứ tự ID trong Redis với hạn logic 30 phút, kèm dự phòng bộ nhớ tối đa 256 phiên mỗi instance. Khóa phiên gắn với tài khoản, nguồn, bộ lọc và hồ sơ để không dùng chéo giữa người dùng. `GET /api/listings` trả `rankingSession`; tải trang tiếp theo gửi lại `rankingSession` cùng `page`, `size`, bộ lọc và `sort`. Cursor cộng đồng dạng `r:<session>:<offset>` thay cho cursor thời gian ở hai nguồn được xếp hạng.
+- Khi phục vụ từng trang, kiểm tra lại tập ứng viên công khai; bỏ tin/bài vừa mất hiệu lực mà không dịch chuyển offset đã lưu. Thay đổi mức ưu tiên gói hoặc hồ sơ làm phiên không còn tương thích. Phiên hết hạn/không tương thích trả `FEED_SESSION_EXPIRED` (409); FE tự bắt đầu lại trang đầu. Không sử dụng quyền lợi gói đã hết hạn từ snapshot cũ.
+- Theo dõi mức phân bổ thực tế cho từng mức ưu tiên, tỷ lệ liên hệ/tin, tương tác có ý nghĩa, tỷ lệ bỏ qua/báo cáo đã xác nhận, độ đa dạng tác giả và tỷ lệ bài mới được hiển thị. Thử nghiệm trọng số trên dữ liệu thực; không chỉ tối ưu tổng lượt xem.
+- V1 đang lấy toàn bộ ứng viên phù hợp để xếp hạng trước khi phân trang, phù hợp quy mô dữ liệu hiện tại; khi dữ liệu tăng cần tách truy hồi ứng viên và tổng hợp tín hiệu nền. Muốn sửa trọng số phải cập nhật BE và phiên bản phạm vi snapshot. Khởi động BE để Flyway áp dụng migration mới trước khi dùng API này.
