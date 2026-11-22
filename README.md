@@ -60,19 +60,22 @@ Frontend :4200
 ```
 
 - Chatbot: trích giá, khu vực, diện tích, tiện ích, số người → tìm phòng bằng SQL → trả card và nội dung qua SSE → lưu hội thoại/log.
+- Câu chào hỏi, cảm ơn, tạm biệt và giới thiệu trợ lý được trả lời nhanh theo `app/chat/small_talk.py`; có thể thêm mẫu câu/câu đáp trong `SMALL_TALK`. Chỉ khớp toàn câu để không bỏ mất điều kiện trong câu như “alo, tìm phòng dưới 3tr”. Trạng thái chờ trên giao diện là “Đang suy nghĩ…”.
+- Với câu còn lại, local trích ý định trước. Nếu trả `CLARIFY`, `OUT_OF_SCOPE` hoặc yêu cầu tìm mới không có bộ lọc, Gateway chuyển ngay sang API ngoài để diễn giải và hỏi lại tự nhiên hơn; lỗi/timeout/JSON sai vẫn chuyển tầng như trước. Câu trả lời làm rõ của API ngoài được dùng trực tiếp, không thay bằng lời từ chối cố định. Nếu API ngoài tắt, lỗi, mở circuit breaker hoặc hết hạn mức, hệ thống giữ câu hỏi làm rõ của local; khi mọi model lỗi thì dùng Rules. Bộ lọc lượt trước được giữ khi chào hỏi hoặc hỏi lại.
+- Muốn dùng API ngoài, đặt `ALLOW_EXTERNAL_FALLBACK=true` và cấu hình khóa của `EXTERNAL_PROVIDER` trong môi trường chạy AIService, rồi khởi động lại dịch vụ. Vẫn áp dụng `EXTERNAL_DAILY_CAP`, circuit breaker và che thông tin cá nhân trước khi gửi ra ngoài.
 - Hỗ trợ hỏi “Profile của tôi hiện tại gồm những điều kiện gì?” để xem các điều kiện đang lưu, hoặc “Gợi ý phòng dựa trên profile của tôi” để dùng bộ gợi ý theo hồ sơ. Đọc theo user ID trong JWT; không lấy ID/email trong câu chat và không gửi hồ sơ cho LLM. Sau khi xem hồ sơ có thể trả lời “Có, gợi ý đi nhé”. Nếu thiếu hồ sơ hoặc đang tắt cá nhân hóa, chatbot hướng dẫn bổ sung/bật lại, không tự đổi thiết lập. Xem hồ sơ vẫn hoạt động khi cá nhân hóa tắt.
 - Các câu tư vấn chung như “Bạn tư vấn phòng cho tôi nhé”, “Giúp mình tìm phòng”, “Mình muốn thuê phòng”, “Có phòng nào phù hợp với mình không?” tự dùng hồ sơ của tenant đăng nhập, không cần nhắc từ “profile”. Nhận diện có dấu/không dấu và các cách nói lịch sự trước khi gọi LLM. Câu có điều kiện cụ thể (giá, địa điểm, diện tích, tiện ích...) tiếp tục qua luồng trích bộ lọc, giá trị trong câu hỏi được ưu tiên. Hồ sơ thiếu/rỗng hoặc tắt cá nhân hóa sẽ nhận hướng dẫn bổ sung/bật lại. Đây là logic định tuyến ý định trong `app/chat/profile.py`; không thay trọng số model Ollama.
 - Gợi ý theo hồ sơ dùng khu vực, giá, diện tích, loại phòng, số người, tiện ích bắt buộc/ưu tiên, điểm mốc và mức dung sai theo bộ recommendation hiện có. Các tiêu chí được chấm điểm có thể chưa khớp hoàn toàn; câu trả lời ghi rõ chênh lệch giá, diện tích, loại phòng, sức chứa hoặc khoảng cách. Ngày dọn vào, nhóm người thuê và ghi chú được hiển thị như thông tin đã lưu, chưa phải điều kiện lọc được bảo đảm bởi recommendation.
 - Chỉ dùng tin PUBLISHED còn hạn, phòng AVAILABLE, tin công khai mới nhất của cơ sở. Bộ lọc phải khớp cùng một phòng.
-- Khi không có kết quả: ưu tiên phòng ngoài phường nhưng trong 3 km từ centroid phường, cùng tỉnh và đúng giá; tiếp đến nới giá trong khu vực yêu cầu tối đa 20%, cuối cùng kết hợp lân cận và nới giá. Giữ tiện ích, diện tích, loại phòng và số người. Ghi rõ phần chưa khớp và hỏi thêm; không ghi điều kiện nới vào bộ lọc gốc.
+- Khi không có kết quả: mở rộng từng bước từ một nửa đến toàn bộ mức dung sai, dừng ngay khi có phòng gần phù hợp. Khu vực lân cận tối đa 5 km từ centroid phường, cùng tỉnh; giá tối đa 20% nhưng không quá 500.000đ/tháng mỗi biên; diện tích tối đa 15% nhưng không quá 5 m² mỗi biên. Thử thay đổi một điều kiện trước rồi mới kết hợp khu vực/giá/diện tích. Ví dụ ngân sách 2 triệu: thử tới 2,2 triệu rồi 2,4 triệu; ngân sách 8 triệu: không vượt 8,5 triệu. Giữ tiện ích, loại phòng và sức chứa. Ưu tiên giá/diện tích gần yêu cầu khi xếp phòng trong mỗi bước; lân cận ưu tiên khoảng cách. Ghi rõ phần chưa khớp trong câu trả lời và trên card ở chat/màn Tìm phòng; không ghi điều kiện nới vào bộ lọc gốc.
 - Centroid tỉnh/phường do backend đồng bộ từ [tinhthanhpho.com](https://www.tinhthanhpho.com/en/api-docs), lưu ở `centroid_lat`, `centroid_lng`. Không có centroid thì không suy đoán lân cận. Khoảng cách tính theo đường thẳng tới tọa độ cơ sở, không phải quãng đường đi.
 - AI recommendation dùng hồ sơ, embedding/hành vi, độ mới, ưu tiên và MMR. Tọa độ điểm mốc trong hồ sơ được dùng nếu có; chatbot chưa nhận vị trí hiện tại của trình duyệt.
 - Embedding là `intfloat/multilingual-e5-small`, chạy CPU trong Python, độc lập với Ollama; build lại sau khi dữ liệu tin thay đổi.
 - Local LLM dùng `qwen3:4b-instruct-2507-q4_K_M`. Tag chung `qwen3:4b` đã tải trước đó là bản Thinking, chậm cho tác vụ này. Prompt gọn, giới hạn EXTRACT 512 token, COMPOSE 384 token, chỉ gửi chi tiết tối đa 5 phòng để soạn lời; card frontend vẫn đầy đủ.
 
-`ALLOW_EXTERNAL_FALLBACK=false` hiện được giữ: chuỗi **Local → Rules**. Nếu bật lại thì Local → Gemini/Anthropic → Rules. HTTP 200 của chat chỉ xác nhận mở được stream; kiểm tra provider trong `llm_call_logs` để biết local có hoàn thành hay không.
+Chuỗi khi `ALLOW_EXTERNAL_FALLBACK=true` là **Local → Gemini/Anthropic → Rules**; API ngoài hỗ trợ cả lỗi kỹ thuật lẫn trường hợp local chưa hiểu ý khách. Các file môi trường mẫu đặt `false` để chạy riêng local; đổi thành `true` và điền khóa khi cần API ngoài. HTTP 200 của chat chỉ xác nhận mở được stream; kiểm tra provider trong `llm_call_logs` để biết tầng nào đã xử lý.
 
-API: `GET /ai/health`, `GET /ai/me`, `GET /ai/recommendations`, `POST /ai/chat`, `POST /ai/events`, `POST /ai/feedback`. Ngoại trừ health, cần JWT access của tenant ACTIVE, cùng HS512/secret/issuer với backend. Swagger: `http://localhost:8000/docs`.
+API: `GET /ai/health`, `GET /ai/me`, `GET /ai/recommendations`, `POST /ai/chat`, `POST /ai/events`, `POST /ai/feedback`. Ngoại trừ health, cần JWT access của tài khoản ACTIVE thuộc bất kỳ role nào (TENANT, LANDLORD, ADMIN), cùng HS512/secret/issuer với backend. Swagger: `http://localhost:8000/docs`.
 
 | Source | Chức năng |
 | --- | --- |
@@ -211,8 +214,11 @@ LOCAL_LLM_MODEL=qwen3:4b-instruct-2507-q4_K_M
 LOCAL_LLM_API_KEY=ollama
 LOCAL_TIMEOUT_SECONDS=90
 CHAT_TIMEOUT_SECONDS=240
-CHAT_NEARBY_RADIUS_KM=3
+CHAT_NEARBY_RADIUS_KM=5
 CHAT_PRICE_TOLERANCE_PCT=20
+CHAT_PRICE_TOLERANCE_MAX_VND=500000
+CHAT_AREA_TOLERANCE_PCT=15
+CHAT_AREA_TOLERANCE_MAX_M2=5
 ALLOW_EXTERNAL_FALLBACK=false
 EMBEDDING_MODEL=intfloat/multilingual-e5-small
 EMBEDDING_DIM=384
@@ -284,7 +290,7 @@ npm ci
 npm start
 ```
 
-Giữ các terminal phục vụ ứng dụng mở. Health cần hai DB UP, có vector và `llm.external.enabled=false`. Health không tự gọi thử Ollama. Mở `http://localhost:4200`; đăng nhập `tenant@gmail.com` / `123456`. Admin/chủ trọ mẫu: `admin@gmail.com`, `landlord@gmail.com`, cùng mật khẩu. Hỏi thử “Tìm phòng dưới 3 triệu ở phường Cầu Giấy, có WiFi”.
+Giữ các terminal phục vụ ứng dụng mở. Health cần hai DB UP, có vector; `llm.external.enabled` phản ánh cấu hình API ngoài. Health không tự gọi thử Ollama. Mở `http://localhost:4200`; đăng nhập `tenant@gmail.com` / `123456`. Admin/chủ trọ mẫu: `admin@gmail.com`, `landlord@gmail.com`, cùng mật khẩu. Hỏi thử “Tìm phòng dưới 3 triệu ở phường Cầu Giấy, có WiFi”.
 
 ## 3. Từ lần thứ hai: chỉ khởi động, không seed lại
 
@@ -343,7 +349,7 @@ Fixture seed có model `demo-fixture-v1`; loại chúng khỏi thống kê thự
 | Local ConnectError | Ollama, cổng 11434, `/api/tags` và log container |
 | Local timeout/Thinking dài | Dùng đúng tag Instruct, làm nóng model, xem CPU/GPU bằng `ollama ps` |
 | Health 503/thiếu cột centroid | Chạy đúng V1 mới của backend và migration AI; kiểm tra grant |
-| 401/403 | JWT secret/issuer/HS512, tenant ACTIVE, authVersion và role |
+| 401/403 | JWT secret/issuer/HS512, tài khoản ACTIVE và authVersion |
 | Không có kết quả lân cận | Centroid và tọa độ cơ sở có thật, phòng còn trống, đúng giá/tiện ích |
 | Setup core báo DB đã vượt V1 | DB đã seed; dùng mục 3, không sinh lại V2 đã áp dụng |
 | Vẫn thấy Gemini | Restart đúng Uvicorn; kiểm tra biến môi trường và external.enabled |

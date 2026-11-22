@@ -95,7 +95,12 @@ class Gateway:
     ) -> tuple[ExtractResult, str | None]:
         """Trả (kết quả, fallback_reason). `validator` kiểm tra giá trị vô lý."""
         reason: str | None = None
+        deferred: tuple[ExtractResult, int] | None = None
         for attempt_no, provider in enumerate(self.chain, start=1):
+            # Keep the local clarification if external is disabled/unavailable.
+            # Rules cannot improve on an already valid local interpretation.
+            if provider.name == "rules" and deferred is not None:
+                break
             breaker = self.breakers.get(provider.name)
             if breaker and not breaker.allow():
                 self._log(ctx, provider, attempt_no, "BREAKER_OPEN")
@@ -126,14 +131,29 @@ class Gateway:
                     validator(result)
                 if breaker:
                     breaker.success()
+                uncertain = provider.name == "local" and (
+                    result.intent in ("CLARIFY", "OUT_OF_SCOPE")
+                    or (result.filters.is_empty() and (
+                        result.intent == "SEARCH" or not last_filters
+                    ))
+                )
+                if uncertain and result.intent in ("SEARCH", "FOLLOW_UP"):
+                    result = ExtractResult(
+                        intent="CLARIFY",
+                        clarification_question="Mình chưa hiểu rõ nhu cầu của bạn. Bạn nói thêm về phòng cần tìm nhé?",
+                    )
                 self._log(
                     ctx,
                     provider,
                     attempt_no,
                     "SUCCESS",
-                    is_final=True,
+                    is_final=not uncertain,
                     latency_ms=_ms(started),
                 )
+                if uncertain:
+                    deferred = result, len(self.call_logger.records) - 1
+                    reason = "local:uncertain_intent"
+                    continue
                 return result, reason
             except asyncio.CancelledError:
                 self._log(
@@ -164,6 +184,10 @@ class Gateway:
                         "fallback_reason": reason,
                     },
                 )
+        if deferred is not None:
+            result, record_index = deferred
+            self.call_logger.records[record_index].is_final = True
+            return result, reason
         raise AllProvidersFailed(reason or "unknown")
 
     async def compose_stream(

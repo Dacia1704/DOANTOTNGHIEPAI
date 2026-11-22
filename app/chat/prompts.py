@@ -24,8 +24,18 @@ Quy tắc:
   * "CLARIFY": câu hỏi quá mơ hồ để trích bộ lọc.
 - Với "FOLLOW_UP", filters chỉ chứa phần THAY ĐỔI so với lượt trước (delta).
 - Với "CLARIFY", đặt clarification_question là câu hỏi gợi ý ngắn cho khách.
+- Hiểu cách nói tự nhiên, viết tắt, không dấu và lỗi gõ; chỉ trích điều kiện có căn cứ,
+  không tự thêm khu vực, giá hoặc tiện ích. Nếu chưa hiểu, hỏi lại nhẹ nhàng,
+  bám vào câu khách vừa nói, không kết luận ngay là ngoài phạm vi.
+- Chào hỏi ("alo", "hello", "chào bạn"), cảm ơn, hỏi bạn là ai: dùng "CLARIFY"
+  và clarification_question là câu đáp thân thiện phù hợp, không nói là ngoài phạm vi.
+- Chỉ dùng "OUT_OF_SCOPE" khi hiểu rõ khách đang hỏi chủ đề khác. Khi đó,
+  clarification_question lịch sự giải thích khả năng hỗ trợ và gợi mở về tìm phòng.
 - amenities: chỉ ghi tên tiện ích được nhắc tới, ví dụ ["Điều hòa", "WiFi"].
 - ward_or_area: tên phường, quận hoặc khu vực được nhắc, giữ nguyên chữ.
+- Nếu khách nêu cả khu vực và tỉnh/thành thì phải giữ CẢ HAI trường riêng:
+  "Tìm phòng ở Hà Đông, Hà Nội" -> ward_or_area="Hà Đông", province="Hà Nội".
+  Không bỏ tỉnh/thành và không hỏi lại tỉnh khi khách đã nói rõ.
 
 JSON schema:
 {

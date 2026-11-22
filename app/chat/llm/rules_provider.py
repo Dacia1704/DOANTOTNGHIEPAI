@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 import re
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
+from app.chat.locations import named_place, named_ward
 from app.chat.normalize import normalize
 from app.chat.schemas import ExtractResult, SearchFilters
 
@@ -177,20 +178,14 @@ def extract_filters_by_rules(text: str, catalogue: dict) -> ExtractResult:
             clarification_question=None,
         )
 
+    # Resolve province independently: finding a ward must not discard its province.
+    filters.province = named_place(text, catalogue.get("provinces", []))
     # Khu vực: quận/huyện theo số ("quận 7") hoặc tên trong danh mục.
     district = _DISTRICT.search(normalized_text)
     if district:
         filters.ward_or_area = f"Quận {district.group(1)}"
     else:
-        for ward in catalogue.get("wards", []):
-            if normalize(ward) in normalized_text:
-                filters.ward_or_area = ward
-                break
-        else:
-            for province in catalogue.get("provinces", []):
-                if normalize(province) in normalized_text:
-                    filters.province = province
-                    break
+        filters.ward_or_area = named_ward(text, catalogue.get("wards", []), filters.province)
 
     # Tiện ích: cũng so khớp không dấu.
     amenities = []

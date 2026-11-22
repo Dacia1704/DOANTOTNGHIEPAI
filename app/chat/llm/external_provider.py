@@ -1,4 +1,4 @@
-"""Tầng ngoài: Gemini hoặc Anthropic Claude. Chỉ dùng khi local lỗi."""
+"""Tầng ngoài: Gemini hoặc Anthropic Claude khi local lỗi hoặc chưa hiểu ý khách."""
 
 from __future__ import annotations
 

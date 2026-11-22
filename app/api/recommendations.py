@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_tenant
+from app.core.deps import get_current_user
 from app.core.security import AuthenticatedUser
 from app.db.session import get_core_session
 from app.recommend.service import recommend
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 def recommendations(
     limit: int = Query(default=10, ge=1, le=50),
     source: str = Query(default="HOME", pattern="^(HOME|SEARCH|CHATBOT)$"),
-    user: AuthenticatedUser = Depends(get_current_tenant),
+    user: AuthenticatedUser = Depends(get_current_user),
     session: Session = Depends(get_core_session),
 ) -> dict:
     result = recommend(session, user.id, limit=limit, source=source)

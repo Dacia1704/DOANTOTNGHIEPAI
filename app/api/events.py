@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_tenant
+from app.core.deps import get_current_user
 from app.core.security import AuthenticatedUser
 from app.db.models_ai import (
     AiConversation,
@@ -45,7 +45,7 @@ class FeedbackRequest(BaseModel):
 @router.post("/events", status_code=status.HTTP_201_CREATED)
 def record_event(
     body: EventRequest,
-    user: AuthenticatedUser = Depends(get_current_tenant),
+    user: AuthenticatedUser = Depends(get_current_user),
     session: Session = Depends(get_ai_session),
 ) -> dict:
     if body.source == "CHATBOT":
@@ -107,7 +107,7 @@ def record_event(
 @router.post("/feedback", status_code=status.HTTP_201_CREATED)
 def record_feedback(
     body: FeedbackRequest,
-    user: AuthenticatedUser = Depends(get_current_tenant),
+    user: AuthenticatedUser = Depends(get_current_user),
     session: Session = Depends(get_ai_session),
 ) -> dict:
     message = session.scalar(
