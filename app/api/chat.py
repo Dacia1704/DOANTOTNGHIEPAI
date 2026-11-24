@@ -26,6 +26,7 @@ from app.chat.search import (
 )
 from app.chat.service import (
     OUT_OF_SCOPE_REPLY,
+    apply_explicit_filters,
     apply_profile_defaults_to_filters,
     get_or_create_conversation,
     last_filters_of,
@@ -186,6 +187,7 @@ async def _turn_events(turn, gateway, previous, catalogue, profile, ward_lookup)
             provider._catalogue_loader = lambda: catalogue
     def validate_result(value):
         apply_explicit_locations(value, turn.message, catalogue)
+        apply_explicit_filters(value, turn.message, catalogue)
         validate_extracted(value, None, catalogue)
 
     result, turn.fallback_reason = await gateway.extract(

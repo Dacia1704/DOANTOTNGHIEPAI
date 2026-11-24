@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.chat.locations import place_name
+from app.chat.locations import canonical_province_needle, place_name
 from app.chat.normalize import normalize
 from app.chat.schemas import SearchFilters
 from app.db.inventory import (
@@ -44,11 +44,39 @@ class ListingCard:
     rental_mode: str = "BY_ROOM"
 
 
+# Đồng nghĩa vùng miền / viết tắt ánh xạ về tên tiện ích chuẩn trong DB.
+_AMENITY_SYNONYMS: dict[str, str] = {
+    "may lanh": "dieu hoa",
+    "dh": "dieu hoa",
+    "ac": "dieu hoa",
+    "nong lanh": "binh nuoc nong",
+    "binh nong lanh": "binh nuoc nong",
+    "nuoc nong": "binh nuoc nong",
+    "nl": "binh nuoc nong",
+    "wc rieng": "nha ve sinh rieng",
+    "wc khep kin": "nha ve sinh rieng",
+    "toilet rieng": "nha ve sinh rieng",
+    "ve sinh khep kin": "nha ve sinh rieng",
+    "nha ve sinh khep kin": "nha ve sinh rieng",
+    "nvs rieng": "nha ve sinh rieng",
+    "bai giu xe": "cho de xe",
+    "bai de xe": "cho de xe",
+    "cho gui xe": "cho de xe",
+    "gui xe": "cho de xe",
+    "de xe may": "cho de xe",
+    "nha xe": "cho de xe",
+    "internet": "wifi",
+    "mang": "wifi",
+    "bep": "bep rieng",
+    "nau an": "bep rieng",
+}
+
+
 def resolve_locations(session: Session, area: str | None, province: str | None = None):
     provinces = session.execute(select(Province.id, Province.name)).all()
     province_ids = []
     if province:
-        needle = place_name(province)
+        needle = canonical_province_needle(province)
         province_ids = [pid for pid, name in provinces if needle and needle in place_name(name)]
         if len(province_ids) != 1:
             raise FilterResolutionError(
@@ -70,10 +98,11 @@ def resolve_locations(session: Session, area: str | None, province: str | None =
                 "Khu vực này có ở nhiều tỉnh. Bạn muốn tìm ở tỉnh nào?"
             )
         return [wid for wid, _ in matched], list({pid for _, pid in matched})
+    prov_needle = canonical_province_needle(area)
     matches = [
         pid
         for pid, name in provinces
-        if needle in normalize(name) and (not province_ids or pid in province_ids)
+        if prov_needle and prov_needle in place_name(name) and (not province_ids or pid in province_ids)
     ]
     if len(matches) == 1:
         return [], matches
@@ -91,9 +120,10 @@ def resolve_amenity_ids(session: Session, names: list[str]):
     matched, unknown = [], []
     for raw in names:
         key = normalize(raw)
-        exact = [aid for aid, name in catalogue if normalize(name) == key]
+        canonical = _AMENITY_SYNONYMS.get(key, key)
+        exact = [aid for aid, name in catalogue if normalize(name) == canonical]
         hits = exact or [
-            aid for aid, name in catalogue if key and key in normalize(name)
+            aid for aid, name in catalogue if canonical and canonical in normalize(name)
         ]
         if len(hits) == 1:
             matched.extend(hits)
