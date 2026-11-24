@@ -12,24 +12,48 @@ from app.chat.locations import named_place, named_ward
 from app.chat.normalize import normalize
 from app.chat.schemas import ExtractResult, SearchFilters
 
-# Số tiền: "3tr", "3 triệu", "2.5tr", "3,5 triệu", "500k"
+# Số tiền: "3tr", "3 triệu", "2tr5", "2m5", "2.5tr", "3,5 triệu", "3 củ", "4 triệu rưỡi", "2500k"
 _MONEY = re.compile(
-    r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>tr|triệu|trieu|tr\.|k|nghìn|nghin)",
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*(?:"
+    r"(?P<short_unit>tr|m)(?P<sub_digit>\d)\b"
+    r"|(?P<unit>tr\.?|triệu|trieu|củ|cu|k|nghìn|nghin)(?:\s*(?P<ruoi>rưỡi|ruoi))?"
+    r")",
     re.IGNORECASE,
 )
-_AREA = re.compile(r"(?P<value>\d+(?:[.,]\d+)?)\s*(?:m2|m²|met2|square)", re.IGNORECASE)
-# "dưới 3tr", "từ 2 triệu", "2-3tr", "trên 4tr"
+_AREA_RANGE = re.compile(
+    r"(?P<from>\d+(?:[.,]\d+)?)\s*(?:-|–|—|\bden\b|\bđến\b|\btoi\b|\btới\b)\s*"
+    r"(?P<to>\d+(?:[.,]\d+)?)\s*(?:m2|m²|met2|mét vuông|met vuong)",
+    re.IGNORECASE,
+)
+_AREA_ABOVE = re.compile(
+    r"(?:trên|tren|>=|từ|tu|ít nhất|it nhat|rộng hơn|rong hon)\s*(?:tầm|tam|khoảng|khoang)?\s*"
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*(?:m2|m²|met2|mét vuông|met vuong)",
+    re.IGNORECASE,
+)
+_AREA_BELOW = re.compile(
+    r"(?:dưới|duoi|<=|<|tối đa|toi da|nhỏ hơn|nho hon)\s*(?:tầm|tam|khoảng|khoang)?\s*"
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*(?:m2|m²|met2|mét vuông|met vuong)",
+    re.IGNORECASE,
+)
+_AREA = re.compile(
+    r"(?P<value>\d+(?:[.,]\d+)?)\s*(?:m2|m²|met2|mét vuông|met vuong|square)",
+    re.IGNORECASE,
+)
+# "dưới 3tr", "từ 2 triệu", "2-3tr", "1tr8 đến 2tr2", "trên 4tr"
 _RANGE = re.compile(
-    r"(?P<from>\d+(?:[.,]\d+)?)\s*(?P<from_unit>tr|triệu|trieu)?\s*(?:-|–|—|\bden\b|\bđến\b|\btoi\b|\btới\b)\s*"
-    r"(?P<to>\d+(?:[.,]\d+)?)\s*(?P<to_unit>tr|triệu|trieu)",
+    r"(?P<from>\d+(?:[.,]\d+)?)\s*(?:(?P<from_short>tr|m)(?P<from_sub>\d)|(?P<from_unit>tr\.?|triệu|trieu|củ|cu))?\s*"
+    r"(?:-|–|—|\bden\b|\bđến\b|\btoi\b|\btới\b)\s*"
+    r"(?P<to>\d+(?:[.,]\d+)?)\s*(?:(?P<to_short>tr|m)(?P<to_sub>\d)|(?P<to_unit>tr\.?|triệu|trieu|củ|cu))",
     re.IGNORECASE,
 )
 _BELOW = re.compile(
-    r"(?:dưới|duoi|ko quá|không quá|<|tối đa|toi da)\s*[^0-9]{0,3}(\d+(?:[.,]\d+)?)\s*(tr|triệu|trieu)?",
+    r"(?:dưới|duoi|ko quá|không quá|<=|<|tối đa|toi da)\s*[^0-9]{0,3}"
+    r"(\d+(?:[.,]\d+)?)\s*(?:(tr|m)(\d)\b|(tr\.?|triệu|trieu|củ|cu|k|nghìn|nghin)?(?:\s*(rưỡi|ruoi))?)",
     re.IGNORECASE,
 )
 _ABOVE = re.compile(
-    r"(?:trên|tren|>=|từ|tu|ít nhất|it nhat)\s*[^0-9]{0,3}(\d+(?:[.,]\d+)?)\s*(tr|triệu|trieu)?",
+    r"(?:trên|tren|>=|từ|tu|ít nhất|it nhat)\s*[^0-9]{0,3}"
+    r"(\d+(?:[.,]\d+)?)\s*(?:(tr|m)(\d)\b|(tr\.?|triệu|trieu|củ|cu|k|nghìn|nghin)(?:\s*(rưỡi|ruoi))?)",
     re.IGNORECASE,
 )
 
@@ -40,8 +64,10 @@ _CHEAP_WORD = re.compile(r"\bre\b", re.IGNORECASE)
 # "quận 7", "quan 7", "q.7" -> khu vực.
 _DISTRICT = re.compile(r"\b(?:quan|q\.?|district)\s*(\d{1,2})\b", re.IGNORECASE)
 
-# "cho 2 người", "cho 3 nguoi"
-_OCCUPANTS = re.compile(r"\bcho\s*(\d{1,2})\s*(?:nguoi|người|ng)\b", re.IGNORECASE)
+# "cho 2 người", "ở 2 người", "2 người", "1 mình", "hai vợ chồng"
+_OCCUPANTS = re.compile(r"\b(?:cho|o)?\s*(\d{1,2})\s*(?:nguoi|ng\b|vo chong)\b", re.IGNORECASE)
+_SOLO_OCCUPANT = re.compile(r"\b(?:1|mot)\s*minh\b", re.IGNORECASE)
+_COUPLE_OCCUPANT = re.compile(r"\bhai\s*vo\s*chong\b", re.IGNORECASE)
 
 # Loại phòng.
 _ROOM_TYPE_MAP = {
@@ -69,14 +95,23 @@ _CLARIFY_QUESTION = (
 )
 
 
-def _to_amount(value: str, unit: str | None) -> int | None:
+def _to_amount(
+    value: str,
+    unit: str | None,
+    sub_digit: str | None = None,
+    ruoi: str | None = None,
+) -> int | None:
     number = float(value.replace(",", "."))
+    if sub_digit:
+        number = number + int(sub_digit) / 10.0
+    if ruoi:
+        number = number + 0.5
     unit = (unit or "").lower()
     if unit.startswith("k") or unit in ("nghìn", "nghin"):
         return int(number * 1000)
-    if unit in ("tr", "triệu", "trieu", "tr."):
+    if unit in ("tr", "triệu", "trieu", "tr.", "củ", "cu", "m"):
         return int(number * 1_000_000)
-    # Không có đơn vị: coi như triệu nếu số lớn, nếu nhỏ thì đồng.
+    # Không có đơn vị: coi như triệu nếu số nhỏ, nếu lớn thì đồng.
     if number >= 1000:
         return int(number)
     return int(number * 1_000_000)
@@ -117,34 +152,74 @@ def extract_filters_by_rules(text: str, catalogue: dict) -> ExtractResult:
     filters = SearchFilters()
     normalized_text = normalize(text)
 
-    # Khoảng giá dạng "2-3tr".
-    range_match = _RANGE.search(text)
+    # Diện tích (tách trước và xóa khỏi bản sao tìm giá để tránh "trên 25m2" bị bắt nhầm thành 25 triệu).
+    money_text = text
+    area_range = _AREA_RANGE.search(money_text)
+    if area_range:
+        low_a = float(area_range.group("from").replace(",", "."))
+        high_a = float(area_range.group("to").replace(",", "."))
+        if low_a <= high_a:
+            filters.area_min = low_a
+            filters.area_max = high_a
+        money_text = money_text[:area_range.start()] + " " + money_text[area_range.end():]
+    else:
+        area_above = _AREA_ABOVE.search(money_text)
+        if area_above:
+            filters.area_min = float(area_above.group("value").replace(",", "."))
+            money_text = money_text[:area_above.start()] + " " + money_text[area_above.end():]
+        area_below = _AREA_BELOW.search(money_text)
+        if area_below:
+            filters.area_max = float(area_below.group("value").replace(",", "."))
+            money_text = money_text[:area_below.start()] + " " + money_text[area_below.end():]
+        if filters.area_min is None and filters.area_max is None:
+            area = _AREA.search(money_text)
+            if area:
+                value = float(area.group("value").replace(",", "."))
+                filters.area_min = value
+                filters.area_max = value
+                money_text = money_text[:area.start()] + " " + money_text[area.end():]
+
+    # Khoảng giá dạng "2-3tr", "1tr8 đến 2tr2".
+    range_match = _RANGE.search(money_text)
     if range_match:
-        low = _to_amount(range_match.group("from"), range_match.group("from_unit"))
-        high = _to_amount(range_match.group("to"), range_match.group("to_unit"))
+        low = _to_amount(
+            range_match.group("from"),
+            range_match.group("from_short") or range_match.group("from_unit"),
+            range_match.group("from_sub"),
+        )
+        high = _to_amount(
+            range_match.group("to"),
+            range_match.group("to_short") or range_match.group("to_unit"),
+            range_match.group("to_sub"),
+        )
         if low is not None and high is not None and low <= high:
             filters.price_min = low
             filters.price_max = high
 
     # "dưới X triệu" / "trên X triệu".
     if filters.price_max is None:
-        below = _BELOW.search(text)
+        below = _BELOW.search(money_text)
         if below:
-            amount = _to_amount(below.group(1), below.group(2))
+            amount = _to_amount(below.group(1), below.group(2) or below.group(4), below.group(3), below.group(5))
             if amount:
                 filters.price_max = amount
     if filters.price_min is None:
-        above = _ABOVE.search(text)
+        above = _ABOVE.search(money_text)
         if above:
-            amount = _to_amount(above.group(1), above.group(2))
+            amount = _to_amount(above.group(1), above.group(2) or above.group(4), above.group(3), above.group(5))
             if amount:
                 filters.price_min = amount
 
-    # Số tiền lẻ (chỉ dùng khi chưa có min/max). "giá 3 triệu" = tối đa 3 triệu.
+    # Số tiền lẻ (chỉ dùng khi chưa có min/max). "giá 3 triệu", "tầm 2tr5", "3 củ" = tối đa.
     if filters.price_min is None and filters.price_max is None:
-        money = _MONEY.search(text)
+        money = _MONEY.search(money_text)
         if money:
-            amount = _to_amount(money.group("value"), money.group("unit"))
+            amount = _to_amount(
+                money.group("value"),
+                money.group("short_unit") or money.group("unit"),
+                money.group("sub_digit"),
+                money.group("ruoi"),
+            )
             if amount:
                 filters.price_max = amount
 
@@ -152,17 +227,14 @@ def extract_filters_by_rules(text: str, catalogue: dict) -> ExtractResult:
     if filters.price_max is None and _CHEAP_WORD.search(normalized_text):
         filters.price_max = _CHEAP_DEFAULT_MAX
 
-    # Diện tích.
-    area = _AREA.search(text)
-    if area:
-        value = float(area.group("value").replace(",", "."))
-        filters.area_min = value
-        filters.area_max = value
-
     # Số người ở.
     occupants = _OCCUPANTS.search(normalized_text)
     if occupants:
         filters.occupants = int(occupants.group(1))
+    elif _SOLO_OCCUPANT.search(normalized_text):
+        filters.occupants = 1
+    elif _COUPLE_OCCUPANT.search(normalized_text):
+        filters.occupants = 2
 
     # Loại phòng.
     for keyword, room_type in _ROOM_TYPE_MAP.items():

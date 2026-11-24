@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-_PHONE = re.compile(r"(?<!\d)(?:\+?84|0)(?:\d[ .-]?){8,10}\d")
+_PHONE = re.compile(r"(?<!\d)(?:\+?84[ .-]?|0)(?:\d[ .-]?){8,10}\d")
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _CITIZEN_ID = re.compile(r"(?<!\d)(?:\d{12}|\d{9})(?!\d)")
 
