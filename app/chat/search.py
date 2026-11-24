@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.chat.locations import place_name
 from app.chat.normalize import normalize
 from app.chat.schemas import SearchFilters
 from app.db.inventory import (
@@ -47,21 +48,21 @@ def resolve_locations(session: Session, area: str | None, province: str | None =
     provinces = session.execute(select(Province.id, Province.name)).all()
     province_ids = []
     if province:
-        needle = normalize(province)
-        province_ids = [pid for pid, name in provinces if needle in normalize(name)]
+        needle = place_name(province)
+        province_ids = [pid for pid, name in provinces if needle and needle in place_name(name)]
         if len(province_ids) != 1:
             raise FilterResolutionError(
                 "Bạn vui lòng cho biết rõ tỉnh hoặc thành phố muốn tìm."
             )
     if not area:
         return [], province_ids
-    needle = normalize(area)
+    needle = place_name(area)
     wards = session.execute(select(Ward.id, Ward.name, Ward.province_id)).all()
     matched = [
         (wid, pid)
         for wid, name, pid in wards
         if (not province_ids or pid in province_ids)
-        and (needle == normalize(name) or needle in normalize(name))
+        and (needle == place_name(name) or needle in place_name(name))
     ]
     if matched:
         if len({pid for _, pid in matched}) > 1:
@@ -101,17 +102,42 @@ def resolve_amenity_ids(session: Session, names: list[str]):
     return list(dict.fromkeys(matched)), unknown
 
 
-def build_listing_query(filters: SearchFilters, *, price_tolerance_pct=0, limit=20):
+def expanded_bounds(low, high, percent, maximum):
+    """Bound each numeric expansion by both a percentage and an absolute gap."""
+    def delta(value):
+        return min(Decimal(str(value)) * Decimal(str(percent)) / 100, Decimal(str(maximum)))
+
+    return (
+        max(Decimal(0), Decimal(str(low)) - delta(low)) if low is not None else None,
+        Decimal(str(high)) + delta(high) if high is not None else None,
+    )
+
+
+def _deviation(column, low, high):
+    conditions = []
+    if low is not None:
+        conditions.append((column < low, low - column))
+    if high is not None:
+        conditions.append((column > high, column - high))
+    return case(*conditions, else_=0) if conditions else column * 0
+
+
+def build_listing_query(filters: SearchFilters, *, price_tolerance_pct=0,
+                        price_tolerance_max_vnd=500_000, area_tolerance_pct=0,
+                        area_tolerance_max_m2=5, limit=20):
     stmt = inventory_query()
-    tolerance = Decimal(price_tolerance_pct) / 100
-    if filters.price_min is not None:
-        stmt = stmt.where(Room.price >= Decimal(filters.price_min) * (1 - tolerance))
-    if filters.price_max is not None:
-        stmt = stmt.where(Room.price <= Decimal(filters.price_max) * (1 + tolerance))
-    if filters.area_min is not None:
-        stmt = stmt.where(Room.area_m2 >= filters.area_min)
-    if filters.area_max is not None:
-        stmt = stmt.where(Room.area_m2 <= filters.area_max)
+    price_low, price_high = expanded_bounds(filters.price_min, filters.price_max,
+                                            price_tolerance_pct, price_tolerance_max_vnd)
+    area_low, area_high = expanded_bounds(filters.area_min, filters.area_max,
+                                          area_tolerance_pct, area_tolerance_max_m2)
+    if price_low is not None:
+        stmt = stmt.where(Room.price >= price_low)
+    if price_high is not None:
+        stmt = stmt.where(Room.price <= price_high)
+    if area_low is not None:
+        stmt = stmt.where(Room.area_m2 >= area_low)
+    if area_high is not None:
+        stmt = stmt.where(Room.area_m2 <= area_high)
     if filters.room_type:
         stmt = stmt.where(
             func.lower(RoomType.name) == filters.room_type.strip().lower()
@@ -131,11 +157,17 @@ def fetch_listing_cards(
     province_ids=None,
     amenity_ids=None,
     price_tolerance_pct=0,
+    price_tolerance_max_vnd=500_000,
+    area_tolerance_pct=0,
+    area_tolerance_max_m2=5,
     limit=20,
     property_distances=None,
 ):
     stmt = build_listing_query(
-        filters, price_tolerance_pct=price_tolerance_pct, limit=None
+        filters, price_tolerance_pct=price_tolerance_pct,
+        price_tolerance_max_vnd=price_tolerance_max_vnd,
+        area_tolerance_pct=area_tolerance_pct,
+        area_tolerance_max_m2=area_tolerance_max_m2, limit=None,
     )
     if ward_ids:
         stmt = stmt.where(Property.ward_id.in_(ward_ids))
@@ -147,22 +179,29 @@ def fetch_listing_cards(
         stmt = stmt.where(Property.id.in_(property_distances))
     stmt = require_amenities(stmt, amenity_ids or ())
     # LIMIT unique listings, not room rows. The window operates after every filter.
+    price_gap = _deviation(Room.price, filters.price_min, filters.price_max)
+    area_gap = _deviation(Room.area_m2, filters.area_min, filters.area_max)
+    relaxed = price_tolerance_pct or area_tolerance_pct
+    room_order = (price_gap, area_gap, Room.price, Room.id) if relaxed else (Room.price, Room.id)
     ranked = (
         stmt.order_by(None)
         .add_columns(
+            price_gap.label("price_gap"), area_gap.label("area_gap"),
             func.row_number()
             .over(
                 partition_by=stmt.selected_columns.listing_id,
-                order_by=(Room.price, Room.id),
+                order_by=room_order,
             )
             .label("room_rank")
         )
         .subquery()
     )
     ordering = (ranked.c.published_at.desc(), ranked.c.listing_id)
+    if relaxed:
+        ordering = (ranked.c.price_gap, ranked.c.area_gap, *ordering)
     if property_distances is not None:
         ordering = (case(property_distances, value=ranked.c.property_id),
-                    ranked.c.price, ranked.c.listing_id)
+                    ranked.c.price_gap, ranked.c.area_gap, ranked.c.price, ranked.c.listing_id)
     rows = session.execute(
         select(ranked)
         .where(ranked.c.room_rank == 1)

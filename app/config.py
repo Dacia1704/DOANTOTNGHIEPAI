@@ -29,8 +29,11 @@ class Settings(BaseSettings):
     local_llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
     local_llm_api_key: str = "ollama"
     local_timeout_seconds: int = 90
-    chat_nearby_radius_km: float = Field(default=3, ge=0.5, le=20)
+    chat_nearby_radius_km: float = Field(default=5, ge=0.5, le=20)
     chat_price_tolerance_pct: int = Field(default=20, ge=0, le=50)
+    chat_price_tolerance_max_vnd: int = Field(default=500_000, ge=0, le=2_000_000)
+    chat_area_tolerance_pct: int = Field(default=15, ge=0, le=30)
+    chat_area_tolerance_max_m2: float = Field(default=5, ge=0, le=10)
 
     # --- LLM ngoài (fallback) ---
     allow_external_fallback: bool = True

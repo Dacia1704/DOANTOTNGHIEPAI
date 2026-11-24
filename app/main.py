@@ -20,7 +20,7 @@ from app.chat.llm.gateway import Gateway
 from app.chat.llm.local_provider import LocalProvider
 from app.chat.llm.rules_provider import RulesProvider
 from app.config import get_settings
-from app.core.deps import get_current_tenant
+from app.core.deps import get_current_user
 from app.embeddings.model import load_embedding_model
 from app.embeddings.store import embedding_store
 from app.observability.call_logger import CallLogger
@@ -134,7 +134,7 @@ app.include_router(events_router)
 
 
 @app.get("/ai/me")
-def me(user=Depends(get_current_tenant)):
+def me(user=Depends(get_current_user)):
     """Thông tin user hiện tại (dùng để kiểm tra JWT còn hiệu lực)."""
     return {
         "id": user.id,

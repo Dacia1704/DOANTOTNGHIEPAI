@@ -13,17 +13,17 @@ from dataclasses import dataclass, field
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from starlette.background import BackgroundTask
 from sqlalchemy import select
+from starlette.background import BackgroundTask
 
 from app.api.deps import get_gateway
 from app.chat.llm.gateway import CallContext, Gateway
 from app.chat.llm.rules_provider import RulesProvider, compose_template
+from app.chat.locations import apply_explicit_locations
 from app.chat.profile import detect_profile_action, profile_reply
 from app.chat.search import (
     FilterResolutionError,
 )
-from app.chat.suggestions import compose_suggestions, search_with_suggestions
 from app.chat.service import (
     OUT_OF_SCOPE_REPLY,
     apply_profile_defaults_to_filters,
@@ -35,8 +35,10 @@ from app.chat.service import (
     validate_extracted,
     ward_name_lookup,
 )
+from app.chat.small_talk import small_talk_reply
+from app.chat.suggestions import compose_suggestions, search_with_suggestions
 from app.config import get_settings
-from app.core.deps import get_current_tenant
+from app.core.deps import get_current_user
 from app.core.rate_limit import usage_tracker
 from app.core.security import AuthenticatedUser
 from app.db.models_ai import AiMessage
@@ -102,7 +104,10 @@ def _search(filters):
         settings = get_settings()
         return search_with_suggestions(
             session, filters, radius_km=settings.chat_nearby_radius_km,
-            price_tolerance_pct=settings.chat_price_tolerance_pct, limit=8,
+            price_tolerance_pct=settings.chat_price_tolerance_pct,
+            price_tolerance_max_vnd=settings.chat_price_tolerance_max_vnd,
+            area_tolerance_pct=settings.chat_area_tolerance_pct,
+            area_tolerance_max_m2=settings.chat_area_tolerance_max_m2, limit=8,
         )
 
 
@@ -154,6 +159,13 @@ def _finish(turn, gateway, day):
 
 
 async def _turn_events(turn, gateway, previous, catalogue, profile, ward_lookup):
+    greeting = small_talk_reply(turn.message)
+    if greeting:
+        turn.intent, turn.status = "CLARIFY", "OK"
+        turn.filters = previous or {}
+        turn.parts.append(greeting)
+        yield _sse("token", {"text": greeting})
+        return
     action = detect_profile_action(turn.message, catalogue.get("previous_intent"))
     if action:
         def read_profile():
@@ -172,36 +184,39 @@ async def _turn_events(turn, gateway, previous, catalogue, profile, ward_lookup)
     for provider in gateway.chain:
         if isinstance(provider, RulesProvider):
             provider._catalogue_loader = lambda: catalogue
+    def validate_result(value):
+        apply_explicit_locations(value, turn.message, catalogue)
+        validate_extracted(value, None, catalogue)
+
     result, turn.fallback_reason = await gateway.extract(
         CallContext(turn.request_id, turn.user_id, "EXTRACT"),
         turn.message,
         previous,
-        validator=lambda value: validate_extracted(value, None, catalogue),
+        validator=validate_result,
     )
     turn.intent = result.intent
     if result.intent in ("CLARIFY", "OUT_OF_SCOPE"):
         turn.status = result.intent
-        reply = (
+        reply = result.clarification_question or (
             OUT_OF_SCOPE_REPLY
             if result.intent == "OUT_OF_SCOPE"
-            else (
-                result.clarification_question
-                or "Bạn muốn tìm phòng ở khu vực nào và khoảng giá bao nhiêu?"
-            )
+            else "Mình chưa hiểu rõ ý bạn. Bạn nói thêm một chút về nhu cầu tìm phòng nhé?"
         )
+        turn.filters = previous or {}
         turn.parts.append(reply)
         yield _sse("token", {"text": reply})
         return
     explicit_filters = merge_filters(result.filters, previous)
     filters = apply_profile_defaults_to_filters(explicit_filters, profile, ward_lookup)
-    payloads = await asyncio.to_thread(_search, filters)
     # Persist only conversational intent; profile defaults are re-applied per turn.
     turn.filters = explicit_filters.model_dump(exclude_none=True)
+    payloads = await asyncio.to_thread(_search, filters)
     turn.listing_ids = [p["id"] for p in payloads]
     yield _sse("listings", {"items": payloads})
     if not payloads or payloads[0].get("match_type"):
         reply = compose_suggestions(payloads, filters,
-                                    price_tolerance_pct=get_settings().chat_price_tolerance_pct)
+                                    price_tolerance_pct=get_settings().chat_price_tolerance_pct,
+                                    price_tolerance_max_vnd=get_settings().chat_price_tolerance_max_vnd)
         turn.parts.append(reply)
         yield _sse("token", {"text": reply})
         turn.status = "OK"
@@ -229,7 +244,7 @@ async def _turn_events(turn, gateway, previous, catalogue, profile, ward_lookup)
 @router.post("/chat")
 async def chat(
     body: ChatRequest,
-    user: AuthenticatedUser = Depends(get_current_tenant),
+    user: AuthenticatedUser = Depends(get_current_user),
     gateway: Gateway = Depends(get_gateway),
 ):
     # Internal UUID is never controlled by the client correlation header.
